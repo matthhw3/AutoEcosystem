@@ -4,6 +4,7 @@ extends RefCounted
 const SAVE_VERSION = 1
 const BOUNDS = 65.0
 const MAX_POPULATION = 36
+const MATURITY_DAYS = {"deer": 365.0, "wolf": 730.0}
 var animals: Array = []
 var elapsed: float = 0.0
 var environment_event: String = "normal"
@@ -79,9 +80,9 @@ func _tick_step(dt: float) -> void:
 			_deer_decision(animal, dt)
 		else:
 			_wolf_decision(animal, dt)
-		if animal.alive and animal.hunger < 35 and animal.energy > 65 and animal.birth_cooldown <= 0:
-			var mate = _nearest(animal, animal.species, 12.0)
-			if mate != null and mate.birth_cooldown <= 0 and mate.hunger < 40 and animals.size() + newborns.size() < MAX_POPULATION:
+		if animal.alive and animal.age >= MATURITY_DAYS[animal.species] and animal.hunger < 35 and animal.energy > 65 and animal.birth_cooldown <= 0:
+			var mate = _nearest_mate(animal, 12.0)
+			if mate != null and animals.size() + newborns.size() < MAX_POPULATION:
 				newborns.append({"species": animal.species, "position": animal.position + Vector3(1, 0, 1)})
 				animal.birth_cooldown = 300.0
 				mate.birth_cooldown = 300.0
@@ -144,6 +145,20 @@ func _nearest(animal: Dictionary, species: String, radius: float):
 	var distance: float = radius
 	for other in animals:
 		if other.id == animal.id or not other.alive or other.species != species:
+			continue
+		var candidate: float = animal.position.distance_to(other.position)
+		if candidate < distance:
+			distance = candidate
+			closest = other
+	return closest
+
+func _nearest_mate(animal: Dictionary, radius: float):
+	var closest = null
+	var distance: float = radius
+	for other in animals:
+		if other.id == animal.id or not other.alive or other.species != animal.species:
+			continue
+		if other.age < MATURITY_DAYS[other.species] or other.birth_cooldown > 0 or other.hunger >= 40 or other.energy <= 65:
 			continue
 		var candidate: float = animal.position.distance_to(other.position)
 		if candidate < distance:
@@ -280,4 +295,3 @@ func from_data(data: Dictionary) -> bool:
 
 func _number(value) -> bool:
 	return (value is float or value is int) and is_finite(float(value))
-
