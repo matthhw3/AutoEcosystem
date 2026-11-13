@@ -30,12 +30,13 @@ func _build_ground() -> void:
 			var b := a + Vector3(spacing, 0, 0)
 			var c := a + Vector3(0, 0, spacing)
 			var d := a + Vector3(spacing, 0, spacing)
-			for point: Vector3 in [a, c, b, b, c, d]:
+			# Godot uses clockwise front faces; keep terrain visible from above.
+			for point: Vector3 in [a, b, c, b, d, c]:
 				point.y = height_at(point.x, point.z)
 				var clearing: float = 1.0 - smoothstep(8.0, 24.0, Vector2(point.x, point.z).length())
 				var trail: float = 1.0 - smoothstep(1.0, 2.8, abs(point.x - sin(point.z * 0.04) * 12.0))
-				var color := Color(0.14, 0.24, 0.13).lerp(Color(0.31, 0.39, 0.20), clearing)
-				color = color.lerp(Color(0.32, 0.28, 0.19), trail * 0.7)
+				var color := Color(0.07, 0.15, 0.055).lerp(Color(0.17, 0.25, 0.08), clearing)
+				color = color.lerp(Color(0.20, 0.13, 0.065), trail * 0.7)
 				surface.set_color(color)
 				surface.add_vertex(point)
 	surface.generate_normals()
@@ -120,21 +121,21 @@ func _build_forest() -> void:
 	cone.bottom_radius = 1
 	cone.height = 1
 	cone.radial_segments = 7
-	_instances(cone, needles, _material(Color(0.08, 0.24, 0.17)))
+	_instances(cone, needles, _material(Color(0.035, 0.15, 0.075)))
 	var sphere := SphereMesh.new()
 	sphere.height = 2
 	sphere.radius = 1
 	sphere.radial_segments = 7
 	sphere.rings = 4
-	_instances(sphere, leaves, _material(Color(0.34, 0.44, 0.20)))
+	_instances(sphere, leaves, _material(Color(0.13, 0.27, 0.055)))
 	_instances(sphere, rocks, _material(Color(0.34, 0.37, 0.35)))
-	_instances(cone, grasses, _material(Color(0.31, 0.40, 0.19)))
+	_instances(cone, grasses, _material(Color(0.15, 0.25, 0.065)))
 
 func _build_lighting() -> void:
 	var sun := DirectionalLight3D.new()
 	sun.rotation_degrees = Vector3(-42, -28, 0)
 	sun.light_color = Color(1.0, 0.89, 0.70)
-	sun.light_energy = 1.3
+	sun.light_energy = 0.9
 	sun.shadow_enabled = true
 	sun.directional_shadow_max_distance = 120
 	add_child(sun)
@@ -149,11 +150,11 @@ func _build_lighting() -> void:
 	environment.sky = sky_resource
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	environment.ambient_light_color = Color(0.67, 0.77, 0.85)
-	environment.ambient_light_energy = 0.65
+	environment.ambient_light_energy = 0.4
 	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
 	environment.fog_enabled = true
 	environment.fog_light_color = Color(0.62, 0.73, 0.70)
-	environment.fog_density = 0.0025
+	environment.fog_density = 0.0015
 	var world := WorldEnvironment.new()
 	world.environment = environment
 	add_child(world)

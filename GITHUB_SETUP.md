@@ -3,7 +3,7 @@
 - Create **PUBLIC** `matthhw3/AutoEcosystem`, connected to this existing project folder. Default branch: `main`.
 - Do not initialize a separate remote README, license or ignore file. Preserve local history.
 - Authenticate Git for Windows using Git Credential Manager; never put credentials in scripts, remotes, or tracked files.
-- Set repository-local `user.name` and `user.email` to the user's confirmed verified GitHub identity. Existing Git configuration matches the connected account name/email, but verification and user confirmation are pending.
+- Repository-local `user.name=Matthew Wong` and `user.email=matthhw3@uci.edu` are configured following explicit user confirmation that this email is verified and approved for public commit metadata.
 - No Codex, Claude, other AI identities, or `Co-authored-by` trailers in commit metadata.
 - Include the exact development attribution in README.md.
 - Commit each meaningful completed step after relevant tests: setup, terrain, camera, models, individual mechanics, UI, interactions, persistence, testing improvements. Prefer small coherent commits with concise messages. Never squash or rewrite development history. Do not commit planned or untested work as completed.
@@ -14,4 +14,4 @@
 
 From this folder, initialize `git init -b main` if needed, configure the confirmed author locally, make coherent tested commits, add `origin https://github.com/matthhw3/AutoEcosystem.git`, review safety checks, then `git push -u origin main`. Verify remote visibility is public and its default branch is main. Never force push or overwrite a pre-existing remote history.
 
-Current blocker: GitHub connector supports reading but no repository creation; no local Git transport credential was available during initial inspection. Remote creation/public visibility and push remain unverified until authentication is provided.
+The user created the remote. GitHub metadata confirms public visibility, main default branch and owner push permission. Local origin is configured. Git transport credentials are available through desktop Git Credential Manager (the restricted sandbox account could not access them). Git operations use desktop permissions where the sandbox protects .git. No credentials are stored in this project.
