@@ -1,5 +1,6 @@
 # Godot generated editor/import cache
 .godot/
+.local/
 .import/
 export.cfg
 export_presets.cfg

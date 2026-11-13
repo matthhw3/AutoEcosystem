@@ -1,0 +1,159 @@
+extends Node3D
+## Original procedural landscape. All meshes and materials are generated locally.
+
+const EXTENT: float = 72.0
+var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
+
+static func height_at(x: float, z: float) -> float:
+	return sin(x * 0.047) * cos(z * 0.041) * 1.5 + sin(z * 0.09 + x * 0.025) * 0.35
+
+func _ready() -> void:
+	_rng.seed = 23119
+	_build_ground()
+	_build_forest()
+	_build_lighting()
+
+func _material(color: Color, roughness: float = 0.92) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	material.roughness = roughness
+	return material
+
+func _build_ground() -> void:
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var divisions: int = 72
+	var spacing: float = EXTENT * 2.0 / divisions
+	for x in range(divisions):
+		for z in range(divisions):
+			var a := Vector3(-EXTENT + x * spacing, 0, -EXTENT + z * spacing)
+			var b := a + Vector3(spacing, 0, 0)
+			var c := a + Vector3(0, 0, spacing)
+			var d := a + Vector3(spacing, 0, spacing)
+			for point: Vector3 in [a, c, b, b, c, d]:
+				point.y = height_at(point.x, point.z)
+				var clearing: float = 1.0 - smoothstep(8.0, 24.0, Vector2(point.x, point.z).length())
+				var trail: float = 1.0 - smoothstep(1.0, 2.8, abs(point.x - sin(point.z * 0.04) * 12.0))
+				var color := Color(0.14, 0.24, 0.13).lerp(Color(0.31, 0.39, 0.20), clearing)
+				color = color.lerp(Color(0.32, 0.28, 0.19), trail * 0.7)
+				surface.set_color(color)
+				surface.add_vertex(point)
+	surface.generate_normals()
+	var ground := MeshInstance3D.new()
+	ground.mesh = surface.commit()
+	var mat := _material(Color.WHITE)
+	mat.vertex_color_use_as_albedo = true
+	ground.material_override = mat
+	add_child(ground)
+	# A reflective blue pond beyond the clearing, with a pebble shore.
+	var pond := MeshInstance3D.new()
+	var disk := CylinderMesh.new()
+	disk.top_radius = 8.5
+	disk.bottom_radius = 8.5
+	disk.height = 0.06
+	disk.radial_segments = 48
+	pond.mesh = disk
+	pond.position = Vector3(28, height_at(28, 28) + 0.15, 28)
+	pond.scale.z = 0.65
+	pond.material_override = _material(Color(0.12, 0.32, 0.38), 0.18)
+	add_child(pond)
+
+func _instances(mesh: Mesh, transforms: Array[Transform3D], material: Material) -> void:
+	var batch := MultiMeshInstance3D.new()
+	var multi := MultiMesh.new()
+	multi.transform_format = MultiMesh.TRANSFORM_3D
+	multi.mesh = mesh
+	multi.instance_count = transforms.size()
+	for index in range(transforms.size()):
+		multi.set_instance_transform(index, transforms[index])
+	batch.multimesh = multi
+	batch.material_override = material
+	add_child(batch)
+
+func _transform(point: Vector3, dimensions: Vector3, yaw: float = 0.0) -> Transform3D:
+	return Transform3D(Basis(Vector3.UP, yaw).scaled(dimensions), point)
+
+func _build_forest() -> void:
+	var trunks: Array[Transform3D] = []
+	var needles: Array[Transform3D] = []
+	var leaves: Array[Transform3D] = []
+	var rocks: Array[Transform3D] = []
+	var grasses: Array[Transform3D] = []
+	for index in range(440):
+		var x: float = _rng.randf_range(-69, 69)
+		var z: float = _rng.randf_range(-69, 69)
+		if Vector2(x, z).length() < 18.0 or abs(x - sin(z * 0.04) * 12) < 3.5:
+			continue
+		if Vector2(x - 28, z - 28).length() < 12:
+			continue
+		var height: float = _rng.randf_range(6, 12)
+		var base := Vector3(x, height_at(x, z), z)
+		trunks.append(_transform(base + Vector3.UP * height * 0.43, Vector3(0.3, height * 0.86, 0.3)))
+		if index % 4 != 0:
+			for tier in range(3):
+				var radius: float = height * (0.26 - tier * 0.045)
+				needles.append(_transform(base + Vector3.UP * height * (0.5 + tier * 0.18), Vector3(radius, height * 0.46, radius)))
+		else:
+			leaves.append(_transform(base + Vector3.UP * height * 0.85, Vector3(height * 0.37, height * 0.39, height * 0.34)))
+	for index in range(140):
+		var x: float = _rng.randf_range(-68, 68)
+		var z: float = _rng.randf_range(-68, 68)
+		if Vector2(x,z).length() < 7:
+			continue
+		var size: float = _rng.randf_range(0.25, 1.2)
+		rocks.append(_transform(Vector3(x, height_at(x,z) + size * 0.2, z), Vector3(size, size * 0.65, size * 0.8), _rng.randf() * TAU))
+	for index in range(1600):
+		var x: float = _rng.randf_range(-68, 68)
+		var z: float = _rng.randf_range(-68, 68)
+		if abs(x - sin(z * 0.04) * 12) < 2 or Vector2(x - 28, z - 28).length() < 10:
+			continue
+		var size: float = _rng.randf_range(0.18, 0.55)
+		grasses.append(_transform(Vector3(x, height_at(x,z) + size * 0.4, z), Vector3(size * 0.65, size, size * 0.65)))
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = 0.6
+	trunk.bottom_radius = 1
+	trunk.height = 1
+	trunk.radial_segments = 6
+	_instances(trunk, trunks, _material(Color(0.23, 0.16, 0.10)))
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0
+	cone.bottom_radius = 1
+	cone.height = 1
+	cone.radial_segments = 7
+	_instances(cone, needles, _material(Color(0.08, 0.24, 0.17)))
+	var sphere := SphereMesh.new()
+	sphere.height = 2
+	sphere.radius = 1
+	sphere.radial_segments = 7
+	sphere.rings = 4
+	_instances(sphere, leaves, _material(Color(0.34, 0.44, 0.20)))
+	_instances(sphere, rocks, _material(Color(0.34, 0.37, 0.35)))
+	_instances(cone, grasses, _material(Color(0.31, 0.40, 0.19)))
+
+func _build_lighting() -> void:
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-42, -28, 0)
+	sun.light_color = Color(1.0, 0.89, 0.70)
+	sun.light_energy = 1.3
+	sun.shadow_enabled = true
+	sun.directional_shadow_max_distance = 120
+	add_child(sun)
+	var sky := ProceduralSkyMaterial.new()
+	sky.sky_top_color = Color(0.25, 0.47, 0.66)
+	sky.sky_horizon_color = Color(0.74, 0.83, 0.80)
+	sky.ground_horizon_color = sky.sky_horizon_color
+	var sky_resource := Sky.new()
+	sky_resource.sky_material = sky
+	var environment := Environment.new()
+	environment.background_mode = Environment.BG_SKY
+	environment.sky = sky_resource
+	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	environment.ambient_light_color = Color(0.67, 0.77, 0.85)
+	environment.ambient_light_energy = 0.65
+	environment.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	environment.fog_enabled = true
+	environment.fog_light_color = Color(0.62, 0.73, 0.70)
+	environment.fog_density = 0.0025
+	var world := WorldEnvironment.new()
+	world.environment = environment
+	add_child(world)
