@@ -82,6 +82,26 @@ func run_tests() -> void:
 	check(scene.status.text == "Saved locally.", "Step saves its checkpoint")
 	scene._process(0.2)
 	check(is_equal_approx(scene.sim.elapsed, before_step + 0.1), "Paused manual processing leaves time unchanged")
+	# Observation tools must stay live while biological time remains paused.
+	scene.roster.item_selected.emit(2)
+	check(scene.selected == scene.sim.animals[2].id, "Roster selects an independent animal")
+	var followed: Node3D = scene.proxies[scene.selected]
+	scene.camera.focus_position(followed.position)
+	check(scene.camera.position.distance_to(followed.position) < 20, "Focus brings camera near animal")
+	scene.camera.follow_target = followed
+	var old_camera: Vector3 = scene.camera.position
+	followed.position += Vector3(6, 0, 0)
+	scene.camera._process(0.2)
+	check(scene.camera.position.distance_to(old_camera) > 0.1, "Follow camera tracks animal proxy while paused")
+	check(is_equal_approx(scene.sim.elapsed, before_step + 0.1), "Camera follow never advances biology")
+	scene.camera.follow_target = null
+	for event in ["wildfire", "flood", "drought", "normal"]:
+		scene.sim.set_event(event)
+		scene._refresh_ui()
+		check(scene.forest._visual_event == event, "Environment view reflects simulation event")
+		check(scene.forest._fire_effect.visible == (event == "wildfire"), "Wildfire view toggles cleanly")
+		check(scene.forest._flood_effect.visible == (event == "flood"), "Flood view toggles cleanly")
+		check(is_equal_approx(scene.sim.elapsed, before_step + 0.1), "Changing an event does not advance time")
 	scene.queue_free()
 	await process_frame
 	for suffix in ["", ".bak", ".tmp"]:

@@ -3,6 +3,12 @@ extends Node3D
 
 const EXTENT: float = 72.0
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
+var _ground_material: StandardMaterial3D
+var _sky_material: ProceduralSkyMaterial
+var _environment: Environment
+var _fire_effect: Node3D
+var _flood_effect: MeshInstance3D
+var _visual_event: String = "normal"
 
 static func height_at(x: float, z: float) -> float:
 	return sin(x * 0.047) * cos(z * 0.041) * 1.5 + sin(z * 0.09 + x * 0.025) * 0.35
@@ -12,6 +18,8 @@ func _ready() -> void:
 	_build_ground()
 	_build_forest()
 	_build_lighting()
+	_build_event_effects()
+	set_event(_visual_event)
 
 func _material(color: Color, roughness: float = 0.92) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
@@ -44,6 +52,7 @@ func _build_ground() -> void:
 	ground.mesh = surface.commit()
 	var mat := _material(Color.WHITE)
 	mat.vertex_color_use_as_albedo = true
+	_ground_material = mat
 	ground.material_override = mat
 	add_child(ground)
 	# A reflective blue pond beyond the clearing, with a pebble shore.
@@ -140,12 +149,14 @@ func _build_lighting() -> void:
 	sun.directional_shadow_max_distance = 120
 	add_child(sun)
 	var sky := ProceduralSkyMaterial.new()
+	_sky_material = sky
 	sky.sky_top_color = Color(0.25, 0.47, 0.66)
 	sky.sky_horizon_color = Color(0.74, 0.83, 0.80)
 	sky.ground_horizon_color = sky.sky_horizon_color
 	var sky_resource := Sky.new()
 	sky_resource.sky_material = sky
 	var environment := Environment.new()
+	_environment = environment
 	environment.background_mode = Environment.BG_SKY
 	environment.sky = sky_resource
 	environment.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
@@ -158,3 +169,96 @@ func _build_lighting() -> void:
 	var world := WorldEnvironment.new()
 	world.environment = environment
 	add_child(world)
+
+func _effect_mesh(parent: Node3D, mesh: Mesh, material: Material, point: Vector3, dimensions: Vector3) -> MeshInstance3D:
+	var instance := MeshInstance3D.new()
+	instance.mesh = mesh
+	instance.material_override = material
+	instance.position = point
+	instance.scale = dimensions
+	parent.add_child(instance)
+	return instance
+
+func _build_event_effects() -> void:
+	# Static cues deliberately have no timer: observing an event never advances it.
+	_fire_effect = Node3D.new()
+	_fire_effect.name = "WildfireVisual"
+	add_child(_fire_effect)
+	var flame := CylinderMesh.new()
+	flame.top_radius = 0.0
+	flame.bottom_radius = 1.0
+	flame.height = 1.0
+	flame.radial_segments = 5
+	var orange := _material(Color(0.95, 0.19, 0.015))
+	orange.emission_enabled = true
+	orange.emission = Color(0.8, 0.12, 0.005)
+	orange.emission_energy_multiplier = 0.6
+	var yellow := _material(Color(1.0, 0.6, 0.05))
+	yellow.emission_enabled = true
+	yellow.emission = Color(0.7, 0.3, 0.015)
+	var smoke_mesh := SphereMesh.new()
+	smoke_mesh.radius = 1.0
+	smoke_mesh.height = 2.0
+	smoke_mesh.radial_segments = 7
+	smoke_mesh.rings = 4
+	var smoke := _material(Color(0.15, 0.17, 0.16))
+	var log_mesh := CylinderMesh.new()
+	log_mesh.top_radius = 0.2
+	log_mesh.bottom_radius = 0.24
+	log_mesh.height = 3.0
+	log_mesh.radial_segments = 6
+	var charred := _material(Color(0.065, 0.045, 0.025))
+	for index in range(14):
+		var angle: float = index * 2.39996
+		var radius: float = 4.0 + float(index % 4) * 3.0
+		var x: float = cos(angle) * radius
+		var z: float = sin(angle) * radius
+		var base := Vector3(x, height_at(x, z), z)
+		var size: float = 1.5 + float(index % 3) * 0.5
+		_effect_mesh(_fire_effect, flame, orange, base + Vector3.UP * size * 0.5, Vector3(0.8, size, 0.8))
+		_effect_mesh(_fire_effect, flame, yellow, base + Vector3(0.25, size * 0.3, 0.3), Vector3(0.4, size * 0.6, 0.4))
+		var log := _effect_mesh(_fire_effect, log_mesh, charred, base + Vector3.UP * 0.2, Vector3.ONE)
+		log.rotation = Vector3(PI * 0.5, angle, 0)
+		for tier in range(3):
+			var drift: float = float(tier) * 0.8
+			_effect_mesh(_fire_effect, smoke_mesh, smoke, base + Vector3(drift, size + 1.0 + tier * 1.8, 0), Vector3.ONE * (0.65 + tier * 0.35))
+	var water_mesh := CylinderMesh.new()
+	water_mesh.top_radius = 22.0
+	water_mesh.bottom_radius = 22.0
+	water_mesh.height = 0.08
+	water_mesh.radial_segments = 64
+	var water := _material(Color(0.07, 0.27, 0.35, 0.72), 0.12)
+	water.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_flood_effect = _effect_mesh(self, water_mesh, water, Vector3(0, 0.95, 0), Vector3.ONE)
+	_flood_effect.name = "FloodVisual"
+	_flood_effect.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+func set_event(event: String) -> void:
+	if event not in ["normal", "drought", "wildfire", "flood"]:
+		event = "normal"
+	_visual_event = event
+	if not is_instance_valid(_fire_effect):
+		return
+	_fire_effect.visible = event == "wildfire"
+	_flood_effect.visible = event == "flood"
+	_ground_material.albedo_color = Color.WHITE
+	_sky_material.sky_top_color = Color(0.25, 0.47, 0.66)
+	_sky_material.sky_horizon_color = Color(0.74, 0.83, 0.80)
+	_environment.fog_light_color = Color(0.62, 0.73, 0.70)
+	_environment.fog_density = 0.0015
+	match event:
+		"drought":
+			_ground_material.albedo_color = Color(1.5, 0.9, 0.4)
+			_sky_material.sky_horizon_color = Color(0.83, 0.72, 0.50)
+			_environment.fog_light_color = Color(0.75, 0.65, 0.46)
+		"wildfire":
+			_ground_material.albedo_color = Color(0.7, 0.55, 0.4)
+			_sky_material.sky_top_color = Color(0.24, 0.25, 0.25)
+			_sky_material.sky_horizon_color = Color(0.63, 0.42, 0.26)
+			_environment.fog_light_color = Color(0.37, 0.32, 0.26)
+			_environment.fog_density = 0.006
+		"flood":
+			_ground_material.albedo_color = Color(0.75, 0.85, 0.9)
+			_sky_material.sky_top_color = Color(0.23, 0.32, 0.40)
+			_sky_material.sky_horizon_color = Color(0.55, 0.65, 0.70)
+	_sky_material.ground_horizon_color = _sky_material.sky_horizon_color

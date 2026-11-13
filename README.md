@@ -4,7 +4,7 @@ A local, offline Godot 4 wildlife observation simulation. GitHub repository name
 
 ## Run
 
-Open `project.godot` in Godot 4.7.2 and press F6 on `scenes/main.tscn` (or F5). No downloads, assets, accounts, or APIs are needed at runtime. The world starts paused.
+Double-click `Launch.cmd` on Windows (finds Godot on PATH or under your Downloads folder), or open `project.godot` in Godot 4.7.2 and press F5. For another installation location: `./Launch.ps1 -Godot 'path/to/Godot.exe'`. No downloads, assets, accounts, or APIs are needed at runtime. The world starts paused.
 
 Use right mouse + WASD to fly; Q/E descend/ascend, Shift accelerates. Click an animal to inspect it; use the roster to select animals through trees. Follow tracks the selection. Space starts/pauses, period steps one simulation tick. Buttons provide save/load, speed and environmental events. Escape releases the mouse.
 

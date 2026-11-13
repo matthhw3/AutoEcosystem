@@ -3,6 +3,7 @@ extends Node3D
 const Simulation = preload("res://scripts/simulation.gd")
 const Forest = preload("res://scripts/forest.gd")
 const Spectator = preload("res://scripts/spectator_camera.gd")
+const AnimalVisual = preload("res://scripts/animal_visual.gd")
 const SAVE_PATH = "user://ecosystem.save"
 const DT = 0.1
 var sim = Simulation.new()
@@ -20,11 +21,13 @@ var start_button: Button
 var event_selector: OptionButton
 var ring: MeshInstance3D
 var ui_elapsed := 0.0
+var forest: Node3D
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
 	sim.reset(42)
-	add_child(Forest.new())
+	forest = Forest.new()
+	add_child(forest)
 	camera = Spectator.new()
 	add_child(camera)
 	camera.current = true
@@ -42,6 +45,10 @@ func _ready() -> void:
 		_load()
 	_refresh_ui()
 	if "--capture" in OS.get_cmdline_user_args():
+		for argument in OS.get_cmdline_user_args():
+			if argument.begins_with("--event="):
+				sim.set_event(argument.trim_prefix("--event="))
+		_refresh_ui()
 		await get_tree().process_frame
 		await RenderingServer.frame_post_draw
 		DirAccess.make_dir_recursive_absolute("res://test-results")
@@ -60,36 +67,9 @@ func _material(color: Color) -> StandardMaterial3D:
 	mat.roughness = 0.85
 	return mat
 
-func _part(parent: Node3D, size: Vector3, pos: Vector3, color: Color) -> MeshInstance3D:
-	var mesh := MeshInstance3D.new()
-	var box := BoxMesh.new()
-	box.size = size
-	mesh.mesh = box
-	mesh.position = pos
-	mesh.material_override = _material(color)
-	parent.add_child(mesh)
-	return mesh
-
 func _animal_proxy(a: Dictionary) -> Node3D:
-	var root := Node3D.new()
-	var wolf: bool = a.species == "wolf"
-	var coat := Color("747d80") if wolf else Color("aa7047")
-	_part(root, Vector3(0.65, 0.7, 1.6), Vector3(0, 1.0, 0), coat)
-	_part(root, Vector3(0.46, 0.55, 0.65), Vector3(0, 1.45, -0.85), coat.lightened(0.12))
-	_part(root, Vector3(0.35, 0.25, 0.5), Vector3(0, 1.32, -1.25), coat)
-	for x in [-0.23, 0.23]:
-		for z in [-0.53, 0.53]:
-			_part(root, Vector3(0.13, 0.7, 0.13), Vector3(x, 0.35, z), coat.darkened(0.25))
-		_part(root, Vector3(0.16, 0.34, 0.14), Vector3(x, 1.82, -0.8), coat)
-		_part(root, Vector3(0.055, 0.075, 0.09), Vector3(x * 1.02, 1.51, -1.17), Color("151d1c"))
-	_part(root, Vector3(0.16, 0.16, 0.65), Vector3(0, 1.05, 1.0), coat)
-	var title := Label3D.new()
-	title.text = a.name
-	title.position.y = 2.3
-	title.font_size = 30
-	title.pixel_size = 0.008
-	title.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-	root.add_child(title)
+	var root = AnimalVisual.new()
+	root.build(a)
 	add_child(root)
 	return root
 
@@ -97,16 +77,10 @@ func _sync_proxies() -> void:
 	for a in sim.animals:
 		if not proxies.has(a.id):
 			proxies[a.id] = _animal_proxy(a)
-		var proxy: Node3D = proxies[a.id]
-		var point: Vector3 = a.position
-		point.y = Forest.height_at(point.x, point.z)
-		var direction: Vector3 = point - proxy.position
-		if direction.length_squared() > 0.001:
-			proxy.rotation.y = atan2(-direction.x, -direction.z)
-		proxy.position = point
-		proxy.rotation.z = 0.0 if a.alive else PI / 2
+		var proxy = proxies[a.id]
+		proxy.sync(a, Forest.height_at(a.position.x, a.position.z), sim.elapsed, a.id == selected)
 		if a.id == selected:
-			ring.position = point + Vector3.UP * 0.08
+			ring.position = proxy.position + Vector3.UP * 0.08
 
 func _process(delta: float) -> void:
 	if running:
@@ -262,6 +236,8 @@ func _build_ui() -> void:
 
 func _refresh_ui() -> void:
 	if not is_instance_valid(summary): return
+	forest.set_event(sim.environment_event)
+	_sync_proxies()
 	var live := 0
 	for a in sim.animals:
 		if a.alive: live += 1
