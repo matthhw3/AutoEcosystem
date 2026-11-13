@@ -3,3 +3,4 @@
 *.tscn text eol=lf
 *.godot text eol=lf
 *.md text eol=lf
+.githooks/* text eol=lf
