@@ -2,6 +2,8 @@
 
 Current development status: the initial playable is complete, while the broader product is still under active implementation. A milestone checkmark means its listed work was tested, not that the whole game is finished.
 
+The active persistent goal uses RELEASE_ACCEPTANCE.md as its bounded completion contract and RELEASE_AUDIT.md for independent evidence. Milestones trigger tested commits and further work, rather than ending development.
+
 Shared habitat geometry now lives in `scripts/habitat.gd`: deterministic tree records drive both the forest renderer and circular trunk obstacles. An 8m spatial grid bounds movement and sight queries. Swept collision prevents tunneling; local steering and sliding avoid trunks. Sight rays test trunk occlusion. This is local obstacle avoidance, not a global path planner. Habitat QA compares grid visibility against exhaustive geometry and checks movement/boundary invariants.
 
 M4 replaces global grazing with localized meadow/water resources. Animals discover nearby visible resources and retain resource IDs in food/water memory, then travel back when hungry/thirsty. Grazing and drinking consume biomass; normal weather regenerates it and drought/fire/flood reduce availability. The forage HUD is the mean meadow biomass. Thirst, depletion and dehydration now affect survival.
@@ -28,6 +30,8 @@ Save schema is versioned and JSON based. Random state is stored as a string to p
 
 Save JSON uses full precision; the parser can still round a double by one ULP. Seeded execution is repeatable, while restored floating values are tested within 1e-12, not promised bit-identical replay. Save errors keep the window open on normal close. Saves live under Godot's `user://` directory (normally `%APPDATA%/Godot/app_userdata/North American Ecosystem`); tests redirect APPDATA to ignored `.local/` and restore any prior test saves.
 
+Startup can recover a valid backup when the primary is corrupt. Before replacing a primary, validation determines whether it is safe to become the next backup: valid files rotate to .bak; invalid files are preserved as .corrupt while the previous valid backup remains intact. Manual invalid loads leave the current ecosystem untouched. Follow, focus and restored camera poses all enforce terrain clearance.
+
 Validation: `tools/run_tests.ps1 -Godot <console executable>` runs biological and scene integration tests. Integration covers paused startup, start/step, pause autosave, load paused, state restoration and malformed-save rejection. `-- --capture` runs a graphical viewport capture to ignored test-results/observatory.png; `-- --smoke` starts the full scene, steps and exits. Windows sandbox certificate-store warnings are unrelated to runtime networking (the game uses none).
 
 The runner also includes habitat and acceptance suites and fails on script parse errors. Acceptance injects a real unopenable temporary-save path to verify visible errors, retained disk checkpoints, paused state, prevented destructive reset and event error feedback. Native Windows interaction confirmed Start, Pause/autosave and roster inspection. Follow/map/resource/pruning paths are exercised by scene tests; prolonged subjective playtesting remains separate release qualification.
@@ -43,5 +47,7 @@ Checkpoints also preserve camera pose, inspected animal, independently followed 
 Graphical QA checked the minimum 1152x720 layout. A 128-record stress scene (36 living plus recent deaths) averaged about 74 fps over 360 frames, and a hazard stress sample about 102 fps, on the RTX 5070 while other game instances were open. These short samples bound the tested scene, not every possible workload; use `-- --benchmark --stress --fresh` to reproduce. Biological coexistence and visual performance are tested separately.
 
 `tools/build_portable.ps1 -Godot <Windows executable>` builds ignored `builds/Windows/Play.cmd` with the local engine and selected project sources. It includes notices from the exact bundled engine plus a SHA256 manifest, without tests, Git data, credentials or local saves. It uses the full engine because export templates are unavailable. This adds no project software license. Engine notice generation follows https://docs.godotengine.org/en/stable/about/complying_with_licenses.html.
+
+Every package is assembled in a fresh staging directory. After a successful manifest is written, the previous Windows bundle is moved into ignored builds/archive and the clean stage becomes builds/Windows. No recursive deletion occurs. A generated unlisted-file fixture verified that stale files remain outside the new distribution; the final directory must contain exactly the manifest's files plus MANIFEST.json.
 
 Research: Godot official documentation on command-line headless execution, saving games and RandomNumberGenerator state informed the testing/persistence design. See https://docs.godotengine.org/en/stable/tutorials/editor/command_line_tutorial.html and https://docs.godotengine.org/en/stable/classes/class_randomnumbergenerator.html.

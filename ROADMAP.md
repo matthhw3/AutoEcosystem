@@ -8,8 +8,11 @@
 - [x] M5: observation map, improved procedural animal models, original synthesized sound, backup recovery and portable Windows packaging; integrated playtesting. Native Windows Start/Pause/roster interaction verified.
 - [x] M6 implementation: multi-seed coexistence balancing, saved expanding fire/flood hazards, drowning/exposure, progressive drought, local observation settings and product acceptance/regression suites. All four automated suites pass.
 - [ ] Release qualification: extended hands-on playtesting, sound/presentation assessment, worst-case graphical profiling and resolution/accessibility review. Treat current build as a release candidate, not a finished polished release.
+- [ ] Persistent-goal release pass: verify every criterion in RELEASE_ACCEPTANCE.md, resolve independent audit failures, test observable natural generations and obstacle-aware resource journeys, then rebuild and verify distribution.
 
 **Product status: core features implemented; release qualification remains.** The current build goes beyond the initial prototype, but automated acceptance does not establish a fully polished finished game.
+
+Persistent finish goal is active. Checkpoints must proceed to the next unresolved acceptance condition. New audit evidence found long-horizon ecological collapse, unobservable juvenile maturation, corrupt-primary backup loss and underground follow-camera poses. Recovery/camera fixes pass targeted regressions; lifecycle/navigation work is underway. Portable builds now assemble a clean staging directory and archive previous bundles so unlisted files cannot silently ship.
 
 Local Git is initialized on main with the user's confirmed verified author; origin is the public matthhw3/AutoEcosystem repository. Initial component and playable-slice checkpoints have been pushed successfully. Safety tooling checks current files and history before pushes.
 

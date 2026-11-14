@@ -48,7 +48,7 @@ func _ready() -> void:
 	ambience.stream_paused = not sound_enabled
 	resource_view = ResourceVisuals.new()
 	add_child(resource_view)
-	resource_view.visible = resources_visible
+	resource_view.set_markers_visible(resources_visible)
 	_build_ui()
 	ring = MeshInstance3D.new()
 	var torus := TorusMesh.new()
@@ -60,7 +60,7 @@ func _ready() -> void:
 	add_child(ring)
 	_sync_proxies()
 	if FileAccess.file_exists(SAVE_PATH) and "--fresh" not in OS.get_cmdline_user_args():
-		_load()
+		_load(SAVE_PATH, true)
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--event="): sim.set_event(argument.trim_prefix("--event="))
 	_refresh_ui()
@@ -219,14 +219,19 @@ func _build_ui() -> void:
 	outer.theme = theme
 	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	margin.add_child(outer)
+	var header := PanelContainer.new()
+	outer.add_child(header)
+	var top := VBoxContainer.new()
+	header.add_child(top)
 	var heading := Label.new()
 	heading.text = "NORTH AMERICAN ECOSYSTEM   /   FOREST OBSERVATORY"
 	heading.add_theme_font_size_override("font_size", 25)
-	outer.add_child(heading)
+	top.add_child(heading)
 	summary = Label.new()
-	outer.add_child(summary)
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	top.add_child(summary)
 	var row := HBoxContainer.new()
-	outer.add_child(row)
+	top.add_child(row)
 	start_button = _button(row, "Start", _toggle)
 	_button(row, "Step 0.1s", _step)
 	var speed_select := OptionButton.new()
@@ -256,7 +261,7 @@ func _build_ui() -> void:
 		confirm_reset.popup_centered()
 	)
 	var options := HBoxContainer.new()
-	outer.add_child(options)
+	top.add_child(options)
 	var sound := CheckButton.new()
 	sound.text = "Forest sound"
 	sound.button_pressed = sound_enabled
@@ -280,7 +285,7 @@ func _build_ui() -> void:
 	resources_toggle.button_pressed = resources_visible
 	resources_toggle.toggled.connect(func(enabled: bool):
 		resources_visible = enabled
-		resource_view.visible = enabled
+		resource_view.set_markers_visible(enabled)
 		_save_preferences()
 	)
 	options.add_child(resources_toggle)
@@ -329,12 +334,18 @@ func _build_ui() -> void:
 		camera.focus_position(point)
 	)
 	lower.add_child(habitat_map)
+	var footer_panel := PanelContainer.new()
+	outer.add_child(footer_panel)
+	var footer := VBoxContainer.new()
+	footer_panel.add_child(footer)
 	status = Label.new()
 	status.text = "Ready. Simulation starts paused."
-	outer.add_child(status)
+	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	footer.add_child(status)
 	var help := Label.new()
 	help.text = "RMB + WASD fly  •  Q/E vertical  •  Shift fast  •  F follow  •  R focus  •  Tab next animal  •  Space pause  •  . step"
-	outer.add_child(help)
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	footer.add_child(help)
 
 func _refresh_ui() -> void:
 	if not is_instance_valid(summary): return
@@ -409,21 +420,37 @@ func _save() -> bool:
 		status.text = "Save failed while writing. Previous save retained."
 		return false
 	if FileAccess.file_exists(SAVE_PATH):
-		if DirAccess.copy_absolute(SAVE_PATH, SAVE_PATH + ".bak") != OK:
+		var previous = _read_checkpoint(SAVE_PATH)
+		var destination: String = SAVE_PATH + ".bak" if _valid_checkpoint(previous) else SAVE_PATH + ".corrupt"
+		if DirAccess.copy_absolute(SAVE_PATH, destination) != OK:
 			status.text = "Cannot back up save. Previous save retained."
 			return false
 	var error := DirAccess.rename_absolute(temp, SAVE_PATH)
 	status.text = "Saved locally." if error == OK else "Save failed; previous backup retained."
 	return error == OK
 
-func _load(path: String = SAVE_PATH) -> void:
+func _read_checkpoint(path: String):
+	var parser := JSON.new()
+	if parser.parse(FileAccess.get_file_as_string(path)) != OK: return null
+	return parser.data
+
+func _valid_checkpoint(data) -> bool:
+	if not data is Dictionary or not _valid_observer(data.get("observer", {})): return false
+	var candidate = Simulation.new()
+	return candidate.from_data(data)
+
+func _load(path: String = SAVE_PATH, recover_on_failure: bool = false) -> bool:
 	if not FileAccess.file_exists(path):
 		status.text = "No local save yet."
-		return
-	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
+		return false
+	var data = _read_checkpoint(path)
 	if not data is Dictionary or not _valid_observer(data.get("observer", {})) or not sim.from_data(data):
+		if recover_on_failure and path == SAVE_PATH and FileAccess.file_exists(SAVE_PATH + ".bak"):
+			if _load(SAVE_PATH + ".bak"):
+				status.text = "Recovered backup. Paused; damaged primary retained until a safe save."
+				return true
 		status.text = "Invalid save; current ecosystem preserved."
-		return
+		return false
 	running = false
 	accumulator = 0.0
 	camera.follow_target = null
@@ -441,6 +468,7 @@ func _load(path: String = SAVE_PATH) -> void:
 		speed = float(observer.speed)
 	status.text = "Loaded locally. Paused; no offline progression."
 	_refresh_ui()
+	return true
 
 func _valid_observer(observer) -> bool:
 	if not observer is Dictionary: return false

@@ -13,6 +13,7 @@ tools/local/
 test-results/
 *.save
 *.save.bak
+*.save.corrupt
 .env
 .env.*
 !.env.example

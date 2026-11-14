@@ -20,6 +20,7 @@ func _ready() -> void:
 
 func focus_position(point: Vector3) -> void:
 	position = point + _follow_offset
+	_constrain_position()
 	look_at(point + Vector3.UP)
 	_yaw = rotation.y
 	_pitch = rotation.x
@@ -27,12 +28,19 @@ func focus_position(point: Vector3) -> void:
 func restore_pose(point: Vector3, orientation: Vector3) -> void:
 	position = point
 	rotation = orientation
+	_constrain_position()
 	_yaw = rotation.y
 	_pitch = rotation.x
 
 func restore_follow(target: Node3D) -> void:
 	follow_target = target
 	_follow_offset = position - target.global_position
+	_follow_offset.y = maxf(2.0, _follow_offset.y)
+
+func _constrain_position() -> void:
+	position.x = clampf(position.x, -85, 85)
+	position.z = clampf(position.z, -85, 85)
+	position.y = clampf(position.y, Forest.height_at(position.x, position.z) + 1.5, 90)
 
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
@@ -45,13 +53,16 @@ func _input(event: InputEvent) -> void:
 		rotation = Vector3(_pitch, _yaw, 0)
 		if is_instance_valid(follow_target):
 			_follow_offset = basis.z * 10.0 + Vector3.UP * 3.0
+			_follow_offset.y = maxf(2.0, _follow_offset.y)
 
 func _process(delta: float) -> void:
 	if is_instance_valid(follow_target):
 		position = position.lerp(follow_target.global_position + _follow_offset, 1.0 - exp(-delta * 6.0))
+		_constrain_position()
 		look_at(follow_target.global_position + Vector3.UP)
 		_yaw = rotation.y
 		_pitch = rotation.x
+	_constrain_position()
 	if Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 		return
 	var direction := Vector3.ZERO
@@ -65,9 +76,7 @@ func _process(delta: float) -> void:
 		follow_target = null
 		var boost: float = 3.0 if Input.is_physical_key_pressed(KEY_SHIFT) else 1.0
 		position += direction.normalized() * fly_speed * boost * delta
-		position.x = clampf(position.x, -85, 85)
-		position.z = clampf(position.z, -85, 85)
-		position.y = clampf(position.y, Forest.height_at(position.x, position.z) + 1.5, 90)
+		_constrain_position()
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_FOCUS_OUT:
