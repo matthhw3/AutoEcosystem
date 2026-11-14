@@ -4,6 +4,12 @@ Current development status: the initial playable is complete, while the broader 
 
 Shared habitat geometry now lives in `scripts/habitat.gd`: deterministic tree records drive both the forest renderer and circular trunk obstacles. An 8m spatial grid bounds movement and sight queries. Swept collision prevents tunneling; local steering and sliding avoid trunks. Sight rays test trunk occlusion. This is local obstacle avoidance, not a global path planner. Habitat QA compares grid visibility against exhaustive geometry and checks movement/boundary invariants.
 
+M4 replaces global grazing with localized meadow/water resources. Animals discover nearby visible resources and retain resource IDs in food/water memory, then travel back when hungry/thirsty. Grazing and drinking consume biomass; normal weather regenerates it and drought/fire/flood reduce availability. The forage HUD is the mean meadow biomass. Thirst, depletion and dehydration now affect survival.
+
+Individual boldness changes predator-detection distance, while endurance changes stamina cost. Nearby wolves can adopt a pack member's prey target and share a successful meal. Initial worlds contain 3 wolves and 6 deer; v1 saves preserve their original population. Wolf hunger gain is 0.025 points/second for compressed observation pacing, balanced through seeded coexistence tests rather than literal metabolic units.
+
+Save schema v2 adds resources, thirst, traits and food/water memories. v1 files migrate with neutral traits and default resources without advancing time. Validation rejects malformed additions before mutating state. Population capacity now counts only living animals (36 maximum); up to128 total records retain recent deaths for inspection. Oldest deaths are pruned beyond that bound, targets are repaired and the view removes stale proxies. Dead records no longer permanently prevent births.
+
 Godot 4.7.2 / GDScript, compatibility renderer for reliable startup. Procedural low-poly forest prioritizes readable animal behavior. The renderer can be upgraded after profiling; no dependency on an online service.
 
 `scripts/simulation.gd` owns serializable agent state and seeded randomness independently of the scene tree. Fixed 0.1-second ticks run only after Start or explicit Step. Biological needs feed individual behavior choices, while danger and recent experiences persist across ticks/saves. Time scaling schedules extra fixed ticks; camera and UI stay interactive while paused.

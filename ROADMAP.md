@@ -4,7 +4,7 @@
 - [x] M1: procedural forest, spectator camera, independent wolf/deer agents, perception/needs, hunt/flee, selection/follow/inspection, simulation controls and local saves; tested headless scene and graphical startup on RTX 5070.
 - [x] M2: environmental events, persistent danger memories, reproduction, aging/death; regression tests for state continuity and ecological transitions pass.
 - [x] M3: visible drought/fire/flood cues, replaceable animated animal proxies, readable panels, roster/follow QA; one-hour endurance and save corruption tests pass. Breeding now requires both parents to reach species-specific maturity.
-- [ ] M4: spatial resources/thirst, individual traits, coordinated wolves, living-population capacity, save migration, shared habitat geometry and performance validation.
+- [x] M4: spatial resources/thirst, individual traits, coordinated wolves, living-population capacity, save migration, shared habitat geometry and performance validation. One-hour seed42 retains 5 deer/3 wolves; seeds7/2026 retain both species after 30 minutes.
 - [ ] M5: observation map, improved procedural animal models, original synthesized sound, backup recovery and portable Windows packaging; integrated playtesting.
 - [ ] M6: release-quality balancing, persistent hazards, accessibility/settings and complete acceptance/regression review against the product vision.
 
