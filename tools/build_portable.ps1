@@ -3,9 +3,9 @@ $ErrorActionPreference = 'Stop'
 
 # Only explicit project sources are copied. No recursive deletion or external download.
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
-$bundle = [IO.Path]::GetFullPath((Join-Path $project 'builds\Windows'))
+$finalBundle = [IO.Path]::GetFullPath((Join-Path $project 'builds\Windows'))
 $expected = $project.TrimEnd('\') + '\builds\Windows'
-if ($bundle -ne $expected) { throw 'Build output must be workspace/builds/Windows.' }
+if ($finalBundle -ne $expected) { throw 'Build output must be workspace/builds/Windows.' }
 $engineSource = (Resolve-Path -LiteralPath $Godot).Path
 if ($engineSource -match '_console\.exe$') {
     # Godot's small console wrapper requires its sibling engine executable.
@@ -14,7 +14,7 @@ if ($engineSource -match '_console\.exe$') {
 if (!(Test-Path -LiteralPath $engineSource -PathType Leaf)) { throw 'Godot engine executable is missing.' }
 if ([IO.Path]::GetExtension($engineSource) -ne '.exe') { throw 'Provide a Windows Godot executable.' }
 
-foreach ($directory in @('builds', 'builds\Windows', 'builds\Windows\game')) {
+foreach ($directory in @('builds', 'builds\archive')) {
     $path = Join-Path $project $directory
     if (Test-Path -LiteralPath $path) {
         if ((Get-Item -LiteralPath $path).Attributes -band [IO.FileAttributes]::ReparsePoint) {
@@ -22,6 +22,15 @@ foreach ($directory in @('builds', 'builds\Windows', 'builds\Windows\game')) {
         }
     } else { New-Item -ItemType Directory -Path $path | Out-Null }
 }
+if ((Test-Path -LiteralPath $finalBundle) -and ((Get-Item -LiteralPath $finalBundle).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    throw 'Final build directory cannot be a symbolic link or junction.'
+}
+# Assemble from scratch so unlisted or stale files from an earlier bundle cannot ship.
+# Previous bundles are preserved outside the distributable, never recursively deleted.
+$bundle = [IO.Path]::GetFullPath((Join-Path $project ('builds\.staging-' + [guid]::NewGuid().ToString('N'))))
+$buildRoot = [IO.Path]::GetFullPath((Join-Path $project 'builds')) + '\'
+if (!$bundle.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid staging location.' }
+New-Item -ItemType Directory -Path (Join-Path $bundle 'game') | Out-Null
 
 $selected = @('project.godot')
 foreach ($directory in @('scenes', 'scripts')) {
@@ -94,5 +103,20 @@ $records = foreach ($relative in ($manifestPaths | Sort-Object)) {
     [ordered]@{ path = $relative; bytes = $file.Length; sha256 = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant() }
 }
 [ordered]@{ format_version = 1; files = @($records) } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $bundle 'MANIFEST.json') -Encoding UTF8
-Write-Output "Portable build ready: $bundle\Play.cmd"
+$archive = $null
+try {
+    if (Test-Path -LiteralPath $finalBundle) {
+        $archive = [IO.Path]::GetFullPath((Join-Path $project ('builds\archive\Windows-' + [DateTimeOffset]::UtcNow.ToString('yyyyMMdd-HHmmss-fff'))))
+        if (!$archive.StartsWith($buildRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid archive location.' }
+        Move-Item -LiteralPath $finalBundle -Destination $archive
+    }
+    Move-Item -LiteralPath $bundle -Destination $finalBundle
+} catch {
+    if ($archive -and !(Test-Path -LiteralPath $finalBundle) -and (Test-Path -LiteralPath $archive)) {
+        Move-Item -LiteralPath $archive -Destination $finalBundle
+    }
+    throw
+}
+Write-Output "Portable build ready: $finalBundle\Play.cmd"
+if ($archive) { Write-Output "Previous build preserved outside distribution: $archive" }
 Write-Output 'Distribution files are listed in MANIFEST.json; no saves, credentials, Git data, or tests were selected.'
