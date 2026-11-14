@@ -22,6 +22,7 @@ var status: Label
 var roster: ItemList
 var start_button: Button
 var event_selector: OptionButton
+var speed_selector: OptionButton
 var ring: MeshInstance3D
 var ui_elapsed := 0.0
 var forest: Node3D
@@ -60,8 +61,17 @@ func _ready() -> void:
 	_sync_proxies()
 	if FileAccess.file_exists(SAVE_PATH) and "--fresh" not in OS.get_cmdline_user_args():
 		_load()
+	for argument in OS.get_cmdline_user_args():
+		if argument.begins_with("--event="): sim.set_event(argument.trim_prefix("--event="))
 	_refresh_ui()
 	if "--benchmark" in OS.get_cmdline_user_args():
+		if "--stress" in OS.get_cmdline_user_args():
+			for i in range(119):
+				sim._spawn("deer", Vector3(-55 + (i % 12) * 10, 0, -55 + (i / 12) * 10))
+				if i >= 27: sim._die(sim.animals.back(), "QA archive sample")
+			_sync_proxies()
+			camera.position = Vector3(0, 65, 70)
+			camera.look_at(Vector3.ZERO)
 		running = true
 		speed = 10.0
 		var started := Time.get_ticks_msec()
@@ -73,9 +83,6 @@ func _ready() -> void:
 		await get_tree().process_frame
 		get_tree().quit()
 	if "--capture" in OS.get_cmdline_user_args():
-		for argument in OS.get_cmdline_user_args():
-			if argument.begins_with("--event="):
-				sim.set_event(argument.trim_prefix("--event="))
 		_refresh_ui()
 		await get_tree().process_frame
 		await RenderingServer.frame_post_draw
@@ -223,6 +230,7 @@ func _build_ui() -> void:
 	start_button = _button(row, "Start", _toggle)
 	_button(row, "Step 0.1s", _step)
 	var speed_select := OptionButton.new()
+	speed_selector = speed_select
 	for s in [1, 2, 5, 10]: speed_select.add_item(str(s) + "x")
 	speed_select.item_selected.connect(func(i: int): speed = [1.0, 2.0, 5.0, 10.0][i])
 	row.add_child(speed_select)
@@ -344,6 +352,7 @@ func _refresh_ui() -> void:
 	if sim.environment_event != "normal" and sim.has_method("hazard_radius"):
 		summary.text += "   |   affected radius %.0fm · intensity %.1fx" % [sim.hazard_radius(), sim.event_intensity]
 	start_button.text = "Pause & save" if running else "Start"
+	speed_selector.select([1.0, 2.0, 5.0, 10.0].find(speed))
 	event_selector.select(["normal", "drought", "wildfire", "flood"].find(sim.environment_event))
 	roster.clear()
 	for a in sim.animals:
@@ -388,7 +397,12 @@ func _save() -> bool:
 	if file == null:
 		status.text = "Save failed: cannot open local file."
 		return false
-	file.store_string(JSON.stringify(sim.to_data(), "", true, true))
+	var data: Dictionary = sim.to_data()
+	data.observer = {"position": [camera.position.x, camera.position.y, camera.position.z],
+		"rotation": [camera.rotation.x, camera.rotation.y, camera.rotation.z],
+		"selected": selected, "follow": is_instance_valid(camera.follow_target),
+		"follow_id": proxies.find_key(camera.follow_target) if is_instance_valid(camera.follow_target) else -1, "speed": speed}
+	file.store_string(JSON.stringify(data, "", true, true))
 	var write_error := file.get_error()
 	file.close()
 	if write_error != OK:
@@ -407,7 +421,7 @@ func _load(path: String = SAVE_PATH) -> void:
 		status.text = "No local save yet."
 		return
 	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if not data is Dictionary or not sim.from_data(data):
+	if not data is Dictionary or not _valid_observer(data.get("observer", {})) or not sim.from_data(data):
 		status.text = "Invalid save; current ecosystem preserved."
 		return
 	running = false
@@ -417,8 +431,31 @@ func _load(path: String = SAVE_PATH) -> void:
 	proxies.clear()
 	selected = sim.animals[0].id
 	_sync_proxies()
+	var observer: Dictionary = data.get("observer", {})
+	if not observer.is_empty():
+		if proxies.has(int(observer.selected)): selected = int(observer.selected)
+		camera.restore_pose(Vector3(observer.position[0], observer.position[1], observer.position[2]), Vector3(observer.rotation[0], observer.rotation[1], observer.rotation[2]))
+		if observer.follow:
+			var follow_id: int = int(observer.get("follow_id", selected))
+			if proxies.has(follow_id): camera.restore_follow(proxies[follow_id])
+		speed = float(observer.speed)
 	status.text = "Loaded locally. Paused; no offline progression."
 	_refresh_ui()
+
+func _valid_observer(observer) -> bool:
+	if not observer is Dictionary: return false
+	if observer.is_empty(): return true
+	for key in ["position", "rotation"]:
+		if not observer.get(key) is Array or observer[key].size() != 3: return false
+		for value in observer[key]:
+			if not (value is int or value is float) or not is_finite(float(value)) or absf(value) > 10000: return false
+	if not observer.get("follow") is bool: return false
+	if observer.has("follow_id"):
+		var follow_id = observer.follow_id
+		if not (follow_id is int or follow_id is float) or not is_finite(float(follow_id)) or follow_id != int(follow_id) or follow_id < -1: return false
+	var id = observer.get("selected")
+	if not (id is float or id is int) or not is_finite(float(id)) or id < 1 or id != int(id): return false
+	return observer.get("speed") in [1.0, 2.0, 5.0, 10.0]
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:

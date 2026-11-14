@@ -78,6 +78,14 @@ func run_tests() -> void:
 	scene._load()
 	check(state_json(scene.sim) == before_invalid, "Invalid save preserves live state")
 	check(scene.status.text.begins_with("Invalid save"), "Invalid save produces visible feedback")
+	var invalid_observer: Dictionary = persisted.duplicate(true)
+	invalid_observer.observer.position[0] = "invalid coordinate"
+	file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	file.store_string(JSON.stringify(invalid_observer))
+	file.close()
+	scene._load()
+	check(state_json(scene.sim) == before_invalid, "Invalid observer metadata preserves the ecosystem")
+	check(scene.status.text.begins_with("Invalid save"), "Invalid observer metadata produces visible feedback")
 	var before_step: float = scene.sim.elapsed
 	scene._step()
 	check(not scene.running and is_equal_approx(scene.sim.elapsed, before_step + 0.1), "Step advances exactly one fixed tick and pauses")
@@ -132,6 +140,18 @@ func run_tests() -> void:
 	scene._process(0.2)
 	check(is_equal_approx(scene.sim.elapsed - speed_time, 2.0), "10x speed schedules the correct number of fixed ticks")
 	scene.running = false
+	scene.selected = scene.sim.animals[1].id
+	scene.camera.focus_position(scene.proxies[scene.sim.animals[0].id].position)
+	scene.camera.follow_target = scene.proxies[scene.sim.animals[0].id]
+	scene.speed = 5.0
+	var observer_position: Vector3 = scene.camera.position
+	check(scene._save(), "Observer checkpoint saves")
+	scene.selected = scene.sim.animals[2].id
+	scene.camera.focus_position(Vector3(-40, 0, -40))
+	scene.speed = 1.0
+	scene._load()
+	check(scene.selected == scene.sim.animals[1].id and scene.camera.follow_target == scene.proxies[scene.sim.animals[0].id], "Load preserves distinct inspected and followed animals")
+	check(scene.camera.position.distance_to(observer_position) < 0.0001 and scene.speed == 5.0 and not scene.running, "Load preserves observer pose and speed while pausing")
 	scene.roster.grab_focus()
 	var follow_key := InputEventKey.new()
 	follow_key.keycode = KEY_F

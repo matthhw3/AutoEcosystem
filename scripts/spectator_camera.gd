@@ -24,6 +24,16 @@ func focus_position(point: Vector3) -> void:
 	_yaw = rotation.y
 	_pitch = rotation.x
 
+func restore_pose(point: Vector3, orientation: Vector3) -> void:
+	position = point
+	rotation = orientation
+	_yaw = rotation.y
+	_pitch = rotation.x
+
+func restore_follow(target: Node3D) -> void:
+	follow_target = target
+	_follow_offset = position - target.global_position
+
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if event.pressed else Input.MOUSE_MODE_VISIBLE
