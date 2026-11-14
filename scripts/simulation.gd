@@ -14,6 +14,8 @@ var animals: Array = []
 var resources: Array = []
 var elapsed: float = 0.0
 var environment_event: String = "normal"
+var event_elapsed: float = 0.0
+var event_intensity: float = 1.0
 var forage: float = 100.0
 var rng = RandomNumberGenerator.new()
 var next_id: int = 1
@@ -25,6 +27,8 @@ func reset(world_seed: int = 42) -> void:
 	elapsed = 0.0
 	forage = 100.0
 	environment_event = "normal"
+	event_elapsed = 0.0
+	event_intensity = 1.0
 	next_id = 1
 	_spawn("wolf", Vector3(-12, 0, -8))
 	for i in range(6):
@@ -53,9 +57,24 @@ func set_event(event: String) -> void:
 	if event not in ["normal", "drought", "wildfire", "flood"]:
 		return
 	environment_event = event
+	event_elapsed = 0.0
+	event_intensity = 1.0
 	for animal in animals:
 		if animal.alive:
 			_remember(animal, "Environment changed: " + event)
+
+func hazard_radius() -> float:
+	var spread: float = clampf(event_elapsed / 180.0, 0.0, 1.0)
+	if environment_event == "wildfire": return lerpf(15.0, 30.0, spread)
+	if environment_event == "flood": return lerpf(22.0, 32.0, spread)
+	return 0.0
+
+func _advance_environment(dt: float) -> void:
+	event_elapsed += dt
+	if environment_event == "normal":
+		event_intensity = move_toward(event_intensity, 1.0, dt * 0.05)
+	else:
+		event_intensity = 1.0 + clampf(event_elapsed / 180.0, 0.0, 1.0)
 
 func tick(dt: float) -> void:
 	if not is_finite(dt) or dt <= 0.0:
@@ -69,6 +88,7 @@ func tick(dt: float) -> void:
 
 func _tick_step(dt: float) -> void:
 	elapsed += dt
+	_advance_environment(dt)
 	_update_resources(dt)
 	var newborns: Array = []
 	for animal in animals:
@@ -77,18 +97,14 @@ func _tick_step(dt: float) -> void:
 		animal.age += dt / 1200.0
 		animal.birth_cooldown = maxf(0, animal.birth_cooldown - dt)
 		animal.hunger = minf(100, animal.hunger + dt * (WOLF_HUNGER_RATE if animal.species == "wolf" else 0.055))
-		animal.thirst = minf(100, animal.thirst + dt * (0.11 if environment_event == "drought" else 0.035))
+		animal.thirst = minf(100, animal.thirst + dt * (0.035 + 0.075 * event_intensity if environment_event == "drought" else 0.035))
 		_perceive_resources(animal)
 		animal.energy = maxf(0, animal.energy - dt * 0.012)
 		animal.fear = maxf(0, animal.fear - dt * 0.05)
 		if animal.hunger >= 100 or animal.thirst >= 100 or animal.age > (5000 if animal.species == "wolf" else 6500):
 			_die(animal, "Starvation" if animal.hunger >= 100 else ("Dehydration" if animal.thirst >= 100 else "Old age"))
 			continue
-		if environment_event == "wildfire" and animal.position.length() < 15:
-			animal.energy = maxf(0, animal.energy - dt * 0.7)
-			if animal.energy <= 0:
-				_die(animal, "Wildfire exposure")
-				continue
+		if _apply_exposure(animal, dt): continue
 		if animal.species == "deer":
 			_deer_decision(animal, dt)
 		else:
@@ -110,7 +126,7 @@ func _tick_step(dt: float) -> void:
 
 func _deer_decision(animal: Dictionary, dt: float) -> void:
 	var predator = _nearest(animal, "wolf", 29.0 - animal.traits.boldness * 8.0 + animal.fear * 0.08)
-	var hazard: bool = environment_event in ["wildfire", "flood"] and animal.position.length() < 22
+	var hazard: bool = hazard_radius() > 0 and animal.position.length() < hazard_radius() + 7.0
 	if predator != null or hazard:
 		var threat: Vector3 = predator.position if predator != null else Vector3.ZERO
 		animal.target = predator.id if predator != null else -1
@@ -130,7 +146,7 @@ func _deer_decision(animal: Dictionary, dt: float) -> void:
 		_wander(animal, dt)
 
 func _wolf_decision(animal: Dictionary, dt: float) -> void:
-	if environment_event in ["wildfire", "flood"] and animal.position.length() < 22:
+	if hazard_radius() > 0 and animal.position.length() < hazard_radius() + 7.0:
 		_set_behavior(animal, "Fleeing hazard")
 		_move(animal, animal.position, 6.5, dt, true)
 		return
@@ -189,14 +205,29 @@ func _default_resources() -> Array:
 		{"id": 5, "kind": "water", "position": Vector3(-28, 0, 18), "biomass": 100.0}
 	]
 
+func _apply_exposure(animal: Dictionary, dt: float) -> bool:
+	if hazard_radius() <= 0 or animal.position.length() >= hazard_radius(): return false
+	if environment_event == "wildfire":
+		animal.energy = maxf(0, animal.energy - dt * 0.7 * event_intensity)
+		if animal.energy <= 0:
+			_die(animal, "Wildfire exposure")
+			return true
+	elif environment_event == "flood":
+		animal.energy = maxf(0, animal.energy - dt * 0.45 * event_intensity)
+		animal.stamina = maxf(0, animal.stamina - dt * 0.9 * event_intensity)
+		if animal.energy <= 0 or animal.stamina <= 0:
+			_die(animal, "Drowning from flood exhaustion")
+			return true
+	return false
+
 func _update_resources(dt: float) -> void:
 	var meadow_total: float = 0.0
 	var meadow_count: int = 0
 	for patch in resources:
 		var rate: float = 0.07 if patch.kind == "meadow" else 0.1
-		if environment_event == "drought": rate = -0.12
-		if environment_event == "wildfire" and patch.position.length() < 30: rate = -0.6
-		if environment_event == "flood": rate = -0.2 if patch.kind == "meadow" else 0.4
+		if environment_event == "drought": rate = -0.06 * event_intensity
+		if environment_event == "wildfire" and patch.position.length() < hazard_radius(): rate = -0.6 * event_intensity
+		if environment_event == "flood": rate = -0.1 * event_intensity if patch.kind == "meadow" else 0.2 * event_intensity
 		patch.biomass = clampf(patch.biomass + rate * dt, 0, 100)
 		if patch.kind == "meadow":
 			meadow_total += patch.biomass
@@ -334,6 +365,7 @@ func to_data() -> Dictionary:
 		records.append(record)
 	return {"version": SAVE_VERSION, "elapsed": elapsed, "forage": forage,
 		"environment_event": environment_event, "next_id": next_id,
+		"event_elapsed": event_elapsed, "event_intensity": event_intensity,
 		"rng_seed": str(rng.seed), "rng_state": str(rng.state), "animals": records,
 		"resources": _resource_data(resources)}
 
@@ -385,6 +417,10 @@ func from_data(data: Dictionary) -> bool:
 		restored_resources.append(patch)
 	if data.get("environment_event") not in ["normal", "drought", "wildfire", "flood"]:
 		return false
+	var restored_event_elapsed = data.get("event_elapsed", 0.0)
+	var restored_event_intensity = data.get("event_intensity", 1.0)
+	if not _number(restored_event_elapsed) or restored_event_elapsed < 0: return false
+	if not _number(restored_event_intensity) or restored_event_intensity < 1 or restored_event_intensity > 2: return false
 	for key in ["elapsed", "forage", "next_id"]:
 		if not _number(data.get(key)) or data[key] < 0:
 			return false
@@ -460,6 +496,8 @@ func from_data(data: Dictionary) -> bool:
 	forage = float(data.forage)
 	next_id = int(data.next_id)
 	environment_event = data.environment_event
+	event_elapsed = float(restored_event_elapsed)
+	event_intensity = float(restored_event_intensity)
 	rng.seed = data.rng_seed.to_int()
 	rng.state = data.rng_state.to_int()
 	return true

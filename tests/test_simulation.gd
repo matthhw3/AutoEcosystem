@@ -68,6 +68,7 @@ func _initialize() -> void:
 	_test_spatial_resources()
 	_test_traits_and_pack()
 	_test_schema_and_archive()
+	_test_environment_progression()
 	_test_endurance()
 	print("Simulation suite runtime: %.2fs" % ((Time.get_ticks_msec() - started) / 1000.0))
 	print("Simulation tests: %d failure(s)" % failures)
@@ -389,3 +390,62 @@ func _test_schema_and_archive() -> void:
 	check(archive.animals.size() == 128 and archive.animals[0].id != 1, "Archive bounds records by removing oldest dead animals")
 	var validator = Simulation.new()
 	check(validator.from_data(archive.to_data()), "Pruned archive remains valid and has no dangling target references")
+
+func _test_environment_progression() -> void:
+	var world = _isolated_world()
+	world.set_event("wildfire")
+	check(world.event_elapsed == 0 and world.event_intensity == 1 and world.hazard_radius() == 15, "New fire begins with initial size and intensity")
+	var paused_state: Dictionary = world.to_data()
+	for observation in range(10):
+		world.hazard_radius()
+		world.to_data()
+	check(world.to_data() == paused_state, "Observing paused environment never advances its timer or spread")
+	world.tick(60.0)
+	check(world.hazard_radius() > 15 and world.hazard_radius() < 30 and world.event_intensity > 1, "Fire spreads and intensifies only after ticking")
+	var loaded = Simulation.new()
+	check(loaded.from_data(JSON.parse_string(JSON.stringify(world.to_data(), "", true, true))), "Growing event saves and loads")
+	world.tick(30.0)
+	loaded.tick(30.0)
+	check(absf(world.event_elapsed - loaded.event_elapsed) < 0.000000001 and absf(world.hazard_radius() - loaded.hazard_radius()) < 0.000000001, "Saved event timer resumes the same spread progression")
+	check(absf(world.event_intensity - loaded.event_intensity) < 0.000000001 and absf(world.resources[0].biomass - loaded.resources[0].biomass) < 0.000000001, "Saved intensity resumes the same ecological damage")
+	for minute in range(3): world.tick(60.0)
+	check(world.hazard_radius() == 30 and world.event_intensity == 2, "Fire spread and intensity have finite maxima")
+	world.set_event("flood")
+	check(world.hazard_radius() == 22 and world.event_elapsed == 0 and world.event_intensity == 1, "Changing event resets its own progression")
+	for minute in range(3): world.tick(60.0)
+	check(is_equal_approx(world.hazard_radius(), 32), "Flood grows beyond its initial inundation radius")
+	var deer: Dictionary = world.animals[1]
+	deer.alive = true
+	deer.position = Vector3(24, 0, 0)
+	deer.energy = 75.0
+	deer.stamina = 75.0
+	world.tick(0.1)
+	check(deer.alive and deer.energy < 75 and deer.stamina < 75 and deer.behavior == "Fleeing", "Flood exposure drains strength while a healthy animal seeks escape")
+	deer.energy = 0.001
+	world.tick(0.1)
+	check(not deer.alive and "Drowning" in deer.behavior, "Flood can drown an exhausted animal in its expanded area")
+	world.set_event("drought")
+	world.resources[0].biomass = 80.0
+	world.tick(1.0)
+	var early_loss: float = 80.0 - world.resources[0].biomass
+	for minute in range(3): world.tick(60.0)
+	var before_late: float = world.resources[0].biomass
+	world.tick(1.0)
+	check(before_late - world.resources[0].biomass > early_loss * 1.8, "Prolonged drought smoothly increases resource depletion")
+	world.set_event("normal")
+	var damaged: float = world.resources[0].biomass
+	world.tick(60.0)
+	check(world.hazard_radius() == 0 and world.event_intensity == 1 and world.resources[0].biomass > damaged, "Normal weather removes active hazard and gradually restores resources")
+	var compatible: Dictionary = world.to_data()
+	compatible.erase("event_elapsed")
+	compatible.erase("event_intensity")
+	check(loaded.from_data(compatible) and loaded.event_elapsed == 0 and loaded.event_intensity == 1, "Existing schema2 saves receive compatible environmental defaults")
+	var snapshot: Dictionary = world.to_data()
+	for key in ["event_elapsed", "event_intensity"]:
+		for invalid_value in [-1, INF, "invalid", null]:
+			var invalid: Dictionary = snapshot.duplicate(true)
+			invalid[key] = invalid_value
+			check(not world.from_data(invalid) and world.to_data() == snapshot, "Invalid environmental field is rejected without mutation")
+	var excessive: Dictionary = snapshot.duplicate(true)
+	excessive.event_intensity = 3.0
+	check(not world.from_data(excessive) and world.to_data() == snapshot, "Unbounded event intensity rejects atomically")
