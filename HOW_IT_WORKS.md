@@ -1,5 +1,9 @@
 # Architecture and decisions
 
+Current development status: the initial playable is complete, while the broader product is still under active implementation. A milestone checkmark means its listed work was tested, not that the whole game is finished.
+
+Shared habitat geometry now lives in `scripts/habitat.gd`: deterministic tree records drive both the forest renderer and circular trunk obstacles. An 8m spatial grid bounds movement and sight queries. Swept collision prevents tunneling; local steering and sliding avoid trunks. Sight rays test trunk occlusion. This is local obstacle avoidance, not a global path planner. Habitat QA compares grid visibility against exhaustive geometry and checks movement/boundary invariants.
+
 Godot 4.7.2 / GDScript, compatibility renderer for reliable startup. Procedural low-poly forest prioritizes readable animal behavior. The renderer can be upgraded after profiling; no dependency on an online service.
 
 `scripts/simulation.gd` owns serializable agent state and seeded randomness independently of the scene tree. Fixed 0.1-second ticks run only after Start or explicit Step. Biological needs feed individual behavior choices, while danger and recent experiences persist across ticks/saves. Time scaling schedules extra fixed ticks; camera and UI stay interactive while paused.

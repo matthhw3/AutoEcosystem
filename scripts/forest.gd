@@ -2,6 +2,7 @@ extends Node3D
 ## Original procedural landscape. All meshes and materials are generated locally.
 
 const EXTENT: float = 72.0
+const Habitat = preload("res://scripts/habitat.gd")
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var _ground_material: StandardMaterial3D
 var _sky_material: ProceduralSkyMaterial
@@ -89,14 +90,11 @@ func _build_forest() -> void:
 	var leaves: Array[Transform3D] = []
 	var rocks: Array[Transform3D] = []
 	var grasses: Array[Transform3D] = []
-	for index in range(440):
-		var x: float = _rng.randf_range(-69, 69)
-		var z: float = _rng.randf_range(-69, 69)
-		if Vector2(x, z).length() < 18.0 or abs(x - sin(z * 0.04) * 12) < 3.5:
-			continue
-		if Vector2(x - 28, z - 28).length() < 12:
-			continue
-		var height: float = _rng.randf_range(6, 12)
+	for record: Dictionary in Habitat.tree_records():
+		var x: float = record.x
+		var z: float = record.z
+		var height: float = record.height
+		var index: int = record.index
 		var base := Vector3(x, height_at(x, z), z)
 		trunks.append(_transform(base + Vector3.UP * height * 0.43, Vector3(0.3, height * 0.86, 0.3)))
 		if index % 4 != 0:
@@ -105,6 +103,7 @@ func _build_forest() -> void:
 				needles.append(_transform(base + Vector3.UP * height * (0.5 + tier * 0.18), Vector3(radius, height * 0.46, radius)))
 		else:
 			leaves.append(_transform(base + Vector3.UP * height * 0.85, Vector3(height * 0.37, height * 0.39, height * 0.34)))
+	_rng.state = Habitat.decoration_rng_state()
 	for index in range(140):
 		var x: float = _rng.randf_range(-68, 68)
 		var z: float = _rng.randf_range(-68, 68)
