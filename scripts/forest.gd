@@ -17,6 +17,7 @@ static func height_at(x: float, z: float) -> float:
 func _ready() -> void:
 	_rng.seed = 23119
 	_build_ground()
+	_build_backdrop()
 	_build_forest()
 	_build_lighting()
 	_build_event_effects()
@@ -69,7 +70,7 @@ func _build_ground() -> void:
 	pond.material_override = _material(Color(0.12, 0.32, 0.38), 0.18)
 	add_child(pond)
 
-func _instances(mesh: Mesh, transforms: Array[Transform3D], material: Material) -> void:
+func _instances(mesh: Mesh, transforms: Array[Transform3D], material: Material) -> MultiMeshInstance3D:
 	var batch := MultiMeshInstance3D.new()
 	var multi := MultiMesh.new()
 	multi.transform_format = MultiMesh.TRANSFORM_3D
@@ -80,6 +81,7 @@ func _instances(mesh: Mesh, transforms: Array[Transform3D], material: Material) 
 	batch.multimesh = multi
 	batch.material_override = material
 	add_child(batch)
+	return batch
 
 func _transform(point: Vector3, dimensions: Vector3, yaw: float = 0.0) -> Transform3D:
 	return Transform3D(Basis(Vector3.UP, yaw).scaled(dimensions), point)
@@ -137,7 +139,71 @@ func _build_forest() -> void:
 	sphere.rings = 4
 	_instances(sphere, leaves, _material(Color(0.13, 0.27, 0.055)))
 	_instances(sphere, rocks, _material(Color(0.34, 0.37, 0.35)))
-	_instances(cone, grasses, _material(Color(0.15, 0.25, 0.065)))
+	var grass_batch := _instances(cone, grasses, _material(Color(0.15, 0.25, 0.065)))
+	grass_batch.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+func _backdrop_height(x: float, z: float) -> float:
+	var distance: float = maxf(absf(x),absf(z))
+	var hills: float = (sin(x * 0.018) * cos(z * 0.014) + 1.0) * 17.0
+	return height_at(x,z) + smoothstep(115.0,290.0,distance) * hills
+
+func _build_backdrop() -> void:
+	# Ground extends beyond the camera's entire visible range. The active habitat
+	# retains its exact shared geometry; outer hills are observer-only scenery.
+	var surface := SurfaceTool.new()
+	surface.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for x_index in range(100):
+		for z_index in range(100):
+			var x: float = -600.0 + x_index * 12.0
+			var z: float = -600.0 + z_index * 12.0
+			if x >= -72.0 and x < 72.0 and z >= -72.0 and z < 72.0:
+				continue
+			var a := Vector3(x,0,z)
+			var b := Vector3(x + 12.0,0,z)
+			var c := Vector3(x,0,z + 12.0)
+			var d := Vector3(x + 12.0,0,z + 12.0)
+			for point: Vector3 in [a,b,c,b,d,c]:
+				point.y = _backdrop_height(point.x,point.z)
+				var variation: float = (sin(point.x * 0.021 + point.z * 0.035) + 1.0) * 0.5
+				surface.set_color(Color(0.075,0.15,0.065).lerp(Color(0.12,0.21,0.09),variation))
+				surface.add_vertex(point)
+	surface.generate_normals()
+	var ground := MeshInstance3D.new()
+	ground.name = "SurroundingLandscape"
+	ground.mesh = surface.commit()
+	ground.material_override = _ground_material
+	ground.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(ground)
+	var distant_rng := RandomNumberGenerator.new()
+	distant_rng.seed = 90417
+	var pines: Array[Transform3D] = []
+	for index in range(1700):
+		var x: float = distant_rng.randf_range(-330,330)
+		var z: float = distant_rng.randf_range(-330,330)
+		if maxf(absf(x),absf(z)) < 76.0:
+			continue
+		var height: float = distant_rng.randf_range(7.0,16.0)
+		var base := Vector3(x,_backdrop_height(x,z),z)
+		pines.append(_transform(base + Vector3.UP * height * 0.5,Vector3(height * 0.24,height,height * 0.24)))
+	var pine := CylinderMesh.new()
+	pine.top_radius = 0
+	pine.bottom_radius = 1
+	pine.height = 1
+	pine.radial_segments = 6
+	var distant_forest := _instances(pine,pines,_material(Color(0.055,0.17,0.12)))
+	distant_forest.name = "DistantForest"
+	distant_forest.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var peaks: Array[Transform3D] = []
+	for index in range(24):
+		var angle: float = TAU * index / 24.0
+		var radius: float = distant_rng.randf_range(290,360)
+		var x: float = cos(angle) * radius
+		var z: float = sin(angle) * radius
+		var height: float = distant_rng.randf_range(36,79)
+		peaks.append(_transform(Vector3(x,_backdrop_height(x,z) + height * 0.42,z),Vector3(55,height,45),angle))
+	var mountains := _instances(pine,peaks,_material(Color(0.14,0.23,0.25)))
+	mountains.name = "DistantRidgeline"
+	mountains.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 func _build_lighting() -> void:
 	var sun := DirectionalLight3D.new()
@@ -175,6 +241,8 @@ func _effect_mesh(parent: Node3D, mesh: Mesh, material: Material, point: Vector3
 	instance.material_override = material
 	instance.position = point
 	instance.scale = dimensions
+	if parent == _fire_effect:
+		instance.set_meta("ground_clearance",point.y - height_at(point.x,point.z))
 	parent.add_child(instance)
 	return instance
 
@@ -266,6 +334,8 @@ func set_event_progress(radius: float, intensity: float) -> void:
 	# Driven entirely by saved simulation state; views do not run an independent clock.
 	if is_instance_valid(_fire_effect):
 		_fire_effect.scale = Vector3(maxf(1, radius / 15.0), 1, maxf(1, radius / 15.0))
+		for part: Node3D in _fire_effect.get_children():
+			part.position.y = height_at(part.position.x * _fire_effect.scale.x,part.position.z * _fire_effect.scale.z) + float(part.get_meta("ground_clearance",0.0))
 	if is_instance_valid(_flood_effect):
 		_flood_effect.scale = Vector3(maxf(1, radius / 22.0), 1, maxf(1, radius / 22.0))
 	if _visual_event == "wildfire": _environment.fog_density = 0.006 * clampf(intensity, 1, 2)

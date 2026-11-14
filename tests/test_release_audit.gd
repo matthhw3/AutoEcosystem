@@ -52,6 +52,16 @@ func run_checks() -> void:
 	var backup_world = Simulation.new()
 	check(backup_after is Dictionary and backup_world.from_data(backup_after), "Normal close after a corrupt startup must not replace the last valid backup with corrupt bytes")
 	check(FileAccess.file_exists(SAVE_PATH + ".corrupt"), "Damaged primary is preserved separately for recovery diagnostics")
+	var before_oversize: float = restarted.sim.elapsed
+	var oversized := PackedByteArray()
+	oversized.resize(2 * 1024 * 1024 + 1)
+	oversized.fill(32)
+	var huge := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	huge.store_buffer(oversized)
+	huge.close()
+	check(not restarted._load(), "Oversized checkpoint is rejected before parsing")
+	check(restarted.sim.elapsed == before_oversize, "Oversized checkpoint rejection preserves the current ecosystem")
+	check(restarted._save(), "A rejected oversized checkpoint can be safely replaced without losing the backup")
 	restarted.queue_free()
 	await process_frame
 	# The roster must be browsable even when an animal elsewhere remains selected.

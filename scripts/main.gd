@@ -9,6 +9,7 @@ const ForestAudio = preload("res://scripts/forest_audio.gd")
 const ResourceVisuals = preload("res://scripts/resource_visuals.gd")
 const SAVE_PATH = "user://ecosystem.save"
 const DT = 0.1
+const MAX_SAVE_BYTES = 2 * 1024 * 1024
 var sim = Simulation.new()
 var running := false
 var speed := 1.0
@@ -30,6 +31,7 @@ var habitat_map: Control
 var ambience: AudioStreamPlayer
 var resource_view: Node3D
 var confirm_reset: ConfirmationDialog
+var help_dialog: AcceptDialog
 var labels_visible := true
 var sound_enabled := true
 var resources_visible := true
@@ -66,19 +68,28 @@ func _ready() -> void:
 	_refresh_ui()
 	if "--benchmark" in OS.get_cmdline_user_args():
 		if "--stress" in OS.get_cmdline_user_args():
-			for i in range(119):
+			var living_needed: int = maxi(0, Simulation.MAX_POPULATION - sim.living_count())
+			for i in range(maxi(0, Simulation.MAX_RECORDS - sim.animals.size())):
 				sim._spawn("deer", Vector3(-55 + (i % 12) * 10, 0, -55 + (i / 12) * 10))
-				if i >= 27: sim._die(sim.animals.back(), "QA archive sample")
+				if i >= living_needed: sim._die(sim.animals.back(), "QA archive sample")
 			_sync_proxies()
 			camera.position = Vector3(0, 65, 70)
 			camera.look_at(Vector3.ZERO)
 		running = true
 		speed = 10.0
-		var started := Time.get_ticks_msec()
-		for frame in range(360): await get_tree().process_frame
-		var seconds: float = (Time.get_ticks_msec() - started) / 1000.0
+		for frame in range(60): await get_tree().process_frame
+		var started := Time.get_ticks_usec()
+		var last_frame: int = started
+		var samples: Array[float] = []
+		for frame in range(600):
+			await get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			samples.append((now - last_frame) / 1000.0)
+			last_frame = now
+		var seconds: float = (Time.get_ticks_usec() - started) / 1000000.0
+		samples.sort()
 		running = false
-		print("GRAPHICAL_BENCHMARK frames=360 fps=", 360.0 / seconds, " simulation_seconds=", sim.elapsed)
+		print("GRAPHICAL_BENCHMARK frames=600 warmup=60 fps=", 600.0 / seconds, " p95_ms=", samples[569], " max_ms=", samples.back(), " simulation_seconds=", sim.elapsed)
 		ambience.stop()
 		await get_tree().process_frame
 		get_tree().quit()
@@ -142,7 +153,7 @@ func _process(delta: float) -> void:
 		_refresh_ui()
 
 func _input(event: InputEvent) -> void:
-	if is_instance_valid(confirm_reset) and confirm_reset.visible: return
+	if (is_instance_valid(confirm_reset) and confirm_reset.visible) or (is_instance_valid(help_dialog) and help_dialog.visible): return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE: _toggle()
 		if event.keycode == KEY_PERIOD: _step()
@@ -185,6 +196,14 @@ func _step() -> void:
 func _button(row: Node, text: String, callback: Callable) -> Button:
 	var button := Button.new()
 	button.text = text
+	var tips := {"Start": "Start or pause the ecosystem. Pausing also saves locally.",
+		"Step 0.1s": "Advance exactly one simulation tick, then remain paused and save.",
+		"Save": "Save the ecosystem, memories and observer view locally.",
+		"Load": "Restore the latest checkpoint, always paused.",
+		"Recover backup": "Restore the previous valid checkpoint, always paused.",
+		"Follow": "Track the inspected animal. Fly manually to release follow.",
+		"Focus": "Move the camera near the inspected animal without advancing time."}
+	button.tooltip_text = tips.get(text, "")
 	button.pressed.connect(callback)
 	row.add_child(button)
 	return button
@@ -290,6 +309,15 @@ func _build_ui() -> void:
 	)
 	options.add_child(resources_toggle)
 	_button(options, "Recover backup", func(): _load(SAVE_PATH + ".bak"))
+	help_dialog = AcceptDialog.new()
+	help_dialog.title = "Forest observatory · controls and ecology"
+	help_dialog.theme = theme
+	help_dialog.dialog_text = "Observe the forest at your own pace. Nothing advances until Start or Step.\n\nRMB + WASD: fly    Q / E: descend / ascend    Shift: fly faster\nClick an animal or use the roster to inspect it.\nF: follow    R: focus    Tab: next animal    Escape: release mouse\nSpace: start / pause    Period: step one tick\nClick the habitat map to travel without changing simulation time.\n\nHigh hunger or thirst means an animal needs food or water.\nHigh energy and stamina mean it is well rested.\nAnimals remember discovered resources and dangerous locations.\nBoldness changes vigilance; endurance affects fatigue.\nAging and development use a compressed observation timescale.\n\nDrought reduces food and water. Fire and flood expand over time.\nInterventions and memories are saved; paused hazards do not spread.\nPause and normal close save. Reopening never simulates time offline.\nRecover backup restores the previous checkpoint if needed."
+	canvas.add_child(help_dialog)
+	_button(options, "Controls & ecology", func():
+		if running: _toggle()
+		help_dialog.popup_centered()
+	)
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -430,8 +458,12 @@ func _save() -> bool:
 	return error == OK
 
 func _read_checkpoint(path: String):
+	var file := FileAccess.open(path, FileAccess.READ)
+	if file == null or file.get_length() > MAX_SAVE_BYTES: return null
+	var contents := file.get_as_text()
+	file.close()
 	var parser := JSON.new()
-	if parser.parse(FileAccess.get_file_as_string(path)) != OK: return null
+	if parser.parse(contents) != OK: return null
 	return parser.data
 
 func _valid_checkpoint(data) -> bool:

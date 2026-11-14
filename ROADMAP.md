@@ -14,6 +14,8 @@
 
 Persistent finish goal is active. Checkpoints must proceed to the next unresolved acceptance condition. New audit evidence found long-horizon ecological collapse, unobservable juvenile maturation, corrupt-primary backup loss and underground follow-camera poses. Recovery/camera fixes pass targeted regressions; lifecycle/navigation work is underway. Portable builds now assemble a clean staging directory and archive previous bundles so unlisted files cannot silently ship.
 
+Release-pass progress: recovery/oversized-file/camera tests pass; clean-package stale-file regression passes; deterministic body-clearance A* resolves reproduced water stalls; original articulated models and background landscape pass default/minimum/boundary visual checks. Warmed600-frame normal/stress RTX5070 benchmarks exceed60fps with reported95th-percentile frame timing. Lifecycle balance and final distribution qualification remain active.
+
 Local Git is initialized on main with the user's confirmed verified author; origin is the public matthhw3/AutoEcosystem repository. Initial component and playable-slice checkpoints have been pushed successfully. Safety tooling checks current files and history before pushes.
 
 Known modeling simplifications: local trunk avoidance rather than global path planning; rock/branch geometry has no movement collision; paired reproduction without gestation/genetics; finite spatial resource patches instead of individual plants; stylized procedural models and synthesized ambience; radial hazard expansion rather than fluid/fire physics. Extended human playtesting and broad hardware testing remain pending.
