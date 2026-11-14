@@ -8,6 +8,20 @@ var title: Label3D
 var previous_position := Vector3.ZERO
 var initialized := false
 
+func _ellipsoid(parent: Node3D, dimensions: Vector3, point: Vector3, color: Color) -> MeshInstance3D:
+	var mesh := MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = 0.5
+	sphere.height = 1.0
+	sphere.radial_segments = 8
+	sphere.rings = 4
+	mesh.mesh = sphere
+	mesh.scale = dimensions
+	mesh.position = point
+	mesh.material_override = _material(color)
+	parent.add_child(mesh)
+	return mesh
+
 func _material(color: Color) -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = color
@@ -29,13 +43,14 @@ func build(animal: Dictionary) -> void:
 	var coat := Color("68757c") if wolf else Color("9c6844")
 	body = Node3D.new()
 	add_child(body)
-	_box(body, Vector3(0.65, 0.7, 1.6), Vector3(0, 1, 0), coat)
-	_box(body, Vector3(0.5, 0.25, 1.3), Vector3(0, 0.77, -0.1), coat.lightened(0.25))
+	_ellipsoid(body, Vector3(0.8, 0.88, 1.9), Vector3(0, 1, 0), coat)
+	_ellipsoid(body, Vector3(0.55, 0.45, 1.45), Vector3(0, 0.85, -0.1), coat.lightened(0.25))
+	_ellipsoid(body, Vector3(0.5, 0.8 if not wolf else 0.6, 0.55), Vector3(0, 1.25, -0.65), coat)
 	head = Node3D.new()
 	head.position = Vector3(0, 1.45, -0.85)
 	body.add_child(head)
-	_box(head, Vector3(0.46, 0.55, 0.65), Vector3.ZERO, coat.lightened(0.12))
-	_box(head, Vector3(0.34, 0.23, 0.5), Vector3(0, -0.13, -0.4), coat)
+	_ellipsoid(head, Vector3(0.52, 0.62, 0.75), Vector3.ZERO, coat.lightened(0.12))
+	_ellipsoid(head, Vector3(0.38, 0.3, 0.7), Vector3(0, -0.13, -0.4), coat)
 	_box(head, Vector3(0.25, 0.14, 0.13), Vector3(0, -0.08, -0.66), Color("202729"))
 	for x in [-0.23, 0.23]:
 		for z in [-0.53, 0.53]:
@@ -61,13 +76,15 @@ func sync(animal: Dictionary, ground_height: float, elapsed: float, selected: bo
 	position = point
 	rotation.y = animal.heading + PI
 	rotation.z = 0.0 if animal.alive else PI / 2
-	var moving: bool = animal.behavior in ["Hunting", "Fleeing", "Fleeing hazard", "Wandering"] and animal.alive
-	var sprint: bool = animal.behavior in ["Hunting", "Fleeing", "Fleeing hazard"]
+	var moving: bool = animal.behavior in ["Hunting", "Fleeing", "Fleeing hazard", "Wandering", "Seeking water", "Seeking forage", "Pack hunting"] and animal.alive
+	var sprint: bool = animal.behavior in ["Hunting", "Fleeing", "Fleeing hazard", "Pack hunting"]
 	var phase: float = elapsed * (15.0 if sprint else 6.0) + animal.id
 	for i in range(legs.size()):
 		legs[i].rotation.x = sin(phase + (PI if i in [1, 2] else 0.0)) * (0.6 if sprint else 0.3) if moving else 0.0
 	body.position.y = absf(sin(phase)) * 0.06 if moving else 0.0
-	head.rotation.x = 0.65 if animal.behavior == "Grazing" else 0.0
+	head.rotation.x = 0.65 if animal.behavior in ["Grazing", "Drinking"] else 0.0
+	var maturity := 730.0 if animal.species == "wolf" else 365.0
+	scale = Vector3.ONE * lerpf(0.48, 1, clampf(animal.age / maturity, 0, 1))
 	if animal.behavior == "Resting": body.position.y = -0.3
 	title.modulate = Color("ffe7a3") if selected else Color("dfe8e7")
 	title.text = animal.name + ("  †" if not animal.alive else "")

@@ -24,7 +24,7 @@ func focus_position(point: Vector3) -> void:
 	_yaw = rotation.y
 	_pitch = rotation.x
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT:
 		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED if event.pressed else Input.MOUSE_MODE_VISIBLE
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:

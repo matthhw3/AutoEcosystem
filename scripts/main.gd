@@ -4,6 +4,9 @@ const Simulation = preload("res://scripts/simulation.gd")
 const Forest = preload("res://scripts/forest.gd")
 const Spectator = preload("res://scripts/spectator_camera.gd")
 const AnimalVisual = preload("res://scripts/animal_visual.gd")
+const ObservationMap = preload("res://scripts/observation_map.gd")
+const ForestAudio = preload("res://scripts/forest_audio.gd")
+const ResourceVisuals = preload("res://scripts/resource_visuals.gd")
 const SAVE_PATH = "user://ecosystem.save"
 const DT = 0.1
 var sim = Simulation.new()
@@ -22,15 +25,29 @@ var event_selector: OptionButton
 var ring: MeshInstance3D
 var ui_elapsed := 0.0
 var forest: Node3D
+var habitat_map: Control
+var ambience: AudioStreamPlayer
+var resource_view: Node3D
+var confirm_reset: ConfirmationDialog
+var labels_visible := true
+var sound_enabled := true
+var resources_visible := true
 
 func _ready() -> void:
 	get_tree().auto_accept_quit = false
+	_load_preferences()
 	sim.reset(42)
 	forest = Forest.new()
 	add_child(forest)
 	camera = Spectator.new()
 	add_child(camera)
 	camera.current = true
+	ambience = ForestAudio.new()
+	add_child(ambience)
+	ambience.stream_paused = not sound_enabled
+	resource_view = ResourceVisuals.new()
+	add_child(resource_view)
+	resource_view.visible = resources_visible
 	_build_ui()
 	ring = MeshInstance3D.new()
 	var torus := TorusMesh.new()
@@ -41,9 +58,20 @@ func _ready() -> void:
 	ring.material_override = _material(Color("e9c978"))
 	add_child(ring)
 	_sync_proxies()
-	if FileAccess.file_exists(SAVE_PATH):
+	if FileAccess.file_exists(SAVE_PATH) and "--fresh" not in OS.get_cmdline_user_args():
 		_load()
 	_refresh_ui()
+	if "--benchmark" in OS.get_cmdline_user_args():
+		running = true
+		speed = 10.0
+		var started := Time.get_ticks_msec()
+		for frame in range(360): await get_tree().process_frame
+		var seconds: float = (Time.get_ticks_msec() - started) / 1000.0
+		running = false
+		print("GRAPHICAL_BENCHMARK frames=360 fps=", 360.0 / seconds, " simulation_seconds=", sim.elapsed)
+		ambience.stop()
+		await get_tree().process_frame
+		get_tree().quit()
 	if "--capture" in OS.get_cmdline_user_args():
 		for argument in OS.get_cmdline_user_args():
 			if argument.begins_with("--event="):
@@ -54,11 +82,14 @@ func _ready() -> void:
 		DirAccess.make_dir_recursive_absolute("res://test-results")
 		get_viewport().get_texture().get_image().save_png("res://test-results/observatory.png")
 		print("GRAPHICAL_CAPTURE_OK")
+		ambience.stop()
+		await get_tree().process_frame
 		get_tree().quit()
 	if "--smoke" in OS.get_cmdline_user_args():
 		await get_tree().process_frame
 		_step()
 		print("SCENE_SMOKE_OK agents=", proxies.size())
+		ambience.stop()
 		get_tree().quit()
 
 func _material(color: Color) -> StandardMaterial3D:
@@ -74,30 +105,51 @@ func _animal_proxy(a: Dictionary) -> Node3D:
 	return root
 
 func _sync_proxies() -> void:
+	var ids: Array = []
+	for a in sim.animals: ids.append(a.id)
+	for id in proxies.keys():
+		if id not in ids:
+			if camera.follow_target == proxies[id]: camera.follow_target = null
+			proxies[id].queue_free()
+			proxies.erase(id)
+	if selected not in ids and not ids.is_empty(): selected = ids[0]
 	for a in sim.animals:
 		if not proxies.has(a.id):
 			proxies[a.id] = _animal_proxy(a)
 		var proxy = proxies[a.id]
 		proxy.sync(a, Forest.height_at(a.position.x, a.position.z), sim.elapsed, a.id == selected)
+		proxy.title.visible = labels_visible
 		if a.id == selected:
 			ring.position = proxy.position + Vector3.UP * 0.08
 
 func _process(delta: float) -> void:
 	if running:
 		accumulator += minf(delta, 0.25) * speed
-		while accumulator >= DT:
+		while accumulator + 0.000000001 >= DT:
 			sim.tick(DT)
-			accumulator -= DT
+			accumulator = maxf(0.0, accumulator - DT)
 		_sync_proxies()
 	ui_elapsed += delta
 	if ui_elapsed > 0.25:
 		ui_elapsed = 0
 		_refresh_ui()
 
-func _unhandled_input(event: InputEvent) -> void:
+func _input(event: InputEvent) -> void:
+	if is_instance_valid(confirm_reset) and confirm_reset.visible: return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_SPACE: _toggle()
 		if event.keycode == KEY_PERIOD: _step()
+		if event.keycode == KEY_F: camera.follow_target = proxies.get(selected)
+		if event.keycode == KEY_R:
+			camera.follow_target = null
+			if proxies.has(selected): camera.focus_position(proxies[selected].position)
+		if event.keycode == KEY_TAB:
+			var ids: Array = proxies.keys()
+			if not ids.is_empty(): selected = ids[(ids.find(selected) + 1) % ids.size()]
+			_refresh_ui()
+		if event.keycode in [KEY_SPACE, KEY_PERIOD, KEY_F, KEY_R, KEY_TAB]: get_viewport().set_input_as_handled()
+
+func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var best := 45.0
 		for a in sim.animals:
@@ -181,21 +233,50 @@ func _build_ui() -> void:
 	for e in ["normal", "drought", "wildfire", "flood"]: event_select.add_item(e.capitalize())
 	event_select.item_selected.connect(func(i: int):
 		sim.set_event(["normal", "drought", "wildfire", "flood"][i])
-		if not running: _save()
+		if not running and not _save(): return
 		status.text = "Event queued. Start or Step advances its effects."
-	)
-	row.add_child(event_select)
-	_button(row, "New ecosystem", func():
-		running = false
-		camera.follow_target = null
-		for proxy in proxies.values(): proxy.queue_free()
-		proxies.clear()
-		sim.reset(42)
-		selected = 1
-		_sync_proxies()
-		_save()
 		_refresh_ui()
 	)
+	row.add_child(event_select)
+	confirm_reset = ConfirmationDialog.new()
+	confirm_reset.title = "Create a new ecosystem?"
+	confirm_reset.dialog_text = "The current ecosystem will be replaced. Its last checkpoint is retained as a backup."
+	confirm_reset.confirmed.connect(_new_ecosystem)
+	canvas.add_child(confirm_reset)
+	_button(row, "New ecosystem", func():
+		if running: _toggle()
+		confirm_reset.popup_centered()
+	)
+	var options := HBoxContainer.new()
+	outer.add_child(options)
+	var sound := CheckButton.new()
+	sound.text = "Forest sound"
+	sound.button_pressed = sound_enabled
+	sound.toggled.connect(func(enabled: bool):
+		sound_enabled = enabled
+		ambience.stream_paused = not enabled
+		_save_preferences()
+	)
+	options.add_child(sound)
+	var labels := CheckButton.new()
+	labels.text = "Animal labels"
+	labels.button_pressed = labels_visible
+	labels.toggled.connect(func(enabled: bool):
+		labels_visible = enabled
+		_sync_proxies()
+		_save_preferences()
+	)
+	options.add_child(labels)
+	var resources_toggle := CheckButton.new()
+	resources_toggle.text = "Resource markers"
+	resources_toggle.button_pressed = resources_visible
+	resources_toggle.toggled.connect(func(enabled: bool):
+		resources_visible = enabled
+		resource_view.visible = enabled
+		_save_preferences()
+	)
+	options.add_child(resources_toggle)
+	_button(options, "Recover backup", func(): _load(SAVE_PATH + ".bak"))
 	var spacer := Control.new()
 	spacer.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -209,7 +290,7 @@ func _build_ui() -> void:
 	var box := VBoxContainer.new()
 	panel.add_child(box)
 	inspection = RichTextLabel.new()
-	inspection.custom_minimum_size = Vector2(370, 235)
+	inspection.custom_minimum_size = Vector2(370, 280)
 	inspection.bbcode_enabled = true
 	box.add_child(inspection)
 	var actions := HBoxContainer.new()
@@ -227,21 +308,41 @@ func _build_ui() -> void:
 		_refresh_ui()
 	)
 	lower.add_child(roster)
+	var horizontal_space := Control.new()
+	horizontal_space.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	horizontal_space.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	lower.add_child(horizontal_space)
+	habitat_map = ObservationMap.new()
+	habitat_map.simulation = sim
+	habitat_map.size_flags_vertical = Control.SIZE_SHRINK_END
+	habitat_map.location_chosen.connect(func(point: Vector3):
+		camera.follow_target = null
+		point.y = Forest.height_at(point.x, point.z)
+		camera.focus_position(point)
+	)
+	lower.add_child(habitat_map)
 	status = Label.new()
 	status.text = "Ready. Simulation starts paused."
 	outer.add_child(status)
 	var help := Label.new()
-	help.text = "RMB + WASD fly  •  Q/E vertical  •  Shift fast  •  Click select  •  Space pause  •  . step  •  Esc cursor"
+	help.text = "RMB + WASD fly  •  Q/E vertical  •  Shift fast  •  F follow  •  R focus  •  Tab next animal  •  Space pause  •  . step"
 	outer.add_child(help)
 
 func _refresh_ui() -> void:
 	if not is_instance_valid(summary): return
 	forest.set_event(sim.environment_event)
+	if sim.has_method("hazard_radius"): forest.set_event_progress(sim.hazard_radius(), sim.event_intensity)
 	_sync_proxies()
+	if sim.get("resources") != null: resource_view.sync(sim.resources)
+	habitat_map.selected_id = selected
+	habitat_map.camera_position = camera.position
+	habitat_map.queue_redraw()
 	var live := 0
 	for a in sim.animals:
 		if a.alive: live += 1
 	summary.text = "%s   |   %.1f simulation seconds   |   %d living animals   |   %s   |   forage %.0f%%" % ["RUNNING" if running else "PAUSED", sim.elapsed, live, sim.environment_event.to_upper(), sim.forage]
+	if sim.environment_event != "normal" and sim.has_method("hazard_radius"):
+		summary.text += "   |   affected radius %.0fm · intensity %.1fx" % [sim.hazard_radius(), sim.event_intensity]
 	start_button.text = "Pause & save" if running else "Start"
 	event_selector.select(["normal", "drought", "wildfire", "flood"].find(sim.environment_event))
 	roster.clear()
@@ -250,7 +351,36 @@ func _refresh_ui() -> void:
 		roster.set_item_metadata(i, a.id)
 		if a.id == selected:
 			roster.select(i)
-			inspection.text = "[b]%s[/b]  /  %s\n%s\n\nHunger %.0f%%   Energy %.0f%%   Stamina %.0f%%\nAge %.1f days\n\n[b]Recent experiences[/b]\n%s" % [a.name, a.species.capitalize(), a.behavior.capitalize(), a.hunger, a.energy, a.stamina, a.age, "\n".join(a.memories)]
+			var traits: Dictionary = a.get("traits", {"boldness": 0.5, "endurance": 0.5})
+			inspection.text = "[b]%s[/b]  /  %s\n%s   |   Target %s\n\nHunger %.0f%%   Thirst %.0f%%\nEnergy %.0f%%   Stamina %.0f%%\nAge %.1f days   |   Meals %d\nBoldness %.0f%%   Endurance %.0f%%\n\n[b]Recent experiences[/b]\n%s" % [a.name, a.species.capitalize(), a.behavior.capitalize(), str(a.target) if a.target != -1 else "none", a.hunger, a.get("thirst", 0), a.energy, a.stamina, a.age, a.meals, traits.boldness * 100, traits.endurance * 100, "\n".join(a.memories)]
+
+func _new_ecosystem() -> void:
+	running = false
+	accumulator = 0.0
+	if not _save(): return
+	camera.follow_target = null
+	for proxy in proxies.values(): proxy.queue_free()
+	proxies.clear()
+	sim.reset(42)
+	selected = 1
+	_sync_proxies()
+	_save()
+	_refresh_ui()
+
+func _load_preferences() -> void:
+	var preferences := ConfigFile.new()
+	if preferences.load("user://settings.cfg") != OK: return
+	for key in ["sound_enabled", "labels_visible", "resources_visible"]:
+		if not preferences.has_section_key("observation", key): continue
+		var value = preferences.get_value("observation", key)
+		if value is bool: set(key, value)
+
+func _save_preferences() -> void:
+	var preferences := ConfigFile.new()
+	for key in ["sound_enabled", "labels_visible", "resources_visible"]:
+		preferences.set_value("observation", key, get(key))
+	if preferences.save("user://settings.cfg") != OK:
+		status.text = "Could not save observation preferences."
 
 func _save() -> bool:
 	var temp := SAVE_PATH + ".tmp"
@@ -272,11 +402,11 @@ func _save() -> bool:
 	status.text = "Saved locally." if error == OK else "Save failed; previous backup retained."
 	return error == OK
 
-func _load() -> void:
-	if not FileAccess.file_exists(SAVE_PATH):
+func _load(path: String = SAVE_PATH) -> void:
+	if not FileAccess.file_exists(path):
 		status.text = "No local save yet."
 		return
-	var data = JSON.parse_string(FileAccess.get_file_as_string(SAVE_PATH))
+	var data = JSON.parse_string(FileAccess.get_file_as_string(path))
 	if not data is Dictionary or not sim.from_data(data):
 		status.text = "Invalid save; current ecosystem preserved."
 		return
@@ -293,4 +423,6 @@ func _load() -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST:
 		running = false
-		if _save(): get_tree().quit()
+		if _save():
+			ambience.stop()
+			get_tree().quit()

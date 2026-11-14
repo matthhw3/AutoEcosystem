@@ -261,3 +261,11 @@ func set_event(event: String) -> void:
 			_sky_material.sky_top_color = Color(0.23, 0.32, 0.40)
 			_sky_material.sky_horizon_color = Color(0.55, 0.65, 0.70)
 	_sky_material.ground_horizon_color = _sky_material.sky_horizon_color
+
+func set_event_progress(radius: float, intensity: float) -> void:
+	# Driven entirely by saved simulation state; views do not run an independent clock.
+	if is_instance_valid(_fire_effect):
+		_fire_effect.scale = Vector3(maxf(1, radius / 15.0), 1, maxf(1, radius / 15.0))
+	if is_instance_valid(_flood_effect):
+		_flood_effect.scale = Vector3(maxf(1, radius / 22.0), 1, maxf(1, radius / 22.0))
+	if _visual_event == "wildfire": _environment.fog_density = 0.006 * clampf(intensity, 1, 2)
